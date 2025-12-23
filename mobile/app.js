@@ -334,12 +334,22 @@ function renderStockDetail(detail) {
   if (detail.news && Array.isArray(detail.news) && detail.news.length > 0) {
     if (els.mNews && els.mNewsSection) {
       els.mNews.innerHTML = detail.news.map(n => {
-        const title = (n.title || n.name || "").trim();
+        // Ensure proper text encoding - escape HTML and handle special characters
+        let title = (n.title || n.name || "").trim();
+        // Replace any problematic characters
+        title = title.replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // Remove control characters
         const url = n.url || n.link || "#";
         const date = n.date || n.time || "";
+        // Escape HTML to prevent XSS and encoding issues
+        const titleEscaped = title
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
         return `
           <div class="newsItem">
-            <a href="${url}" target="_blank" rel="noreferrer" class="newsLink">${title}</a>
+            <a href="${url}" target="_blank" rel="noreferrer" class="newsLink">${titleEscaped}</a>
             ${date ? `<span class="newsDate">${date}</span>` : ""}
           </div>
         `;

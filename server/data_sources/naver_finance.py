@@ -101,8 +101,19 @@ def _to_float(s: str) -> float:
 async def _get(client: httpx.AsyncClient, url: str) -> str:
     r = await client.get(url, follow_redirects=True, timeout=15.0)
     r.raise_for_status()
-    r.encoding = "euc-kr"  # Naver finance still commonly uses EUC-KR
-    return r.text
+    # Try to detect encoding, fallback to euc-kr
+    if r.encoding is None or r.encoding.lower() in ('iso-8859-1', 'windows-1252'):
+        r.encoding = "euc-kr"  # Naver finance commonly uses EUC-KR
+    # Ensure proper encoding for Korean text
+    try:
+        text = r.text
+        # Verify encoding by trying to encode/decode
+        text.encode('utf-8')
+        return text
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # If encoding fails, try to fix it
+        r.encoding = "euc-kr"
+        return r.text
 
 
 async def fetch_index_quotes(client: httpx.AsyncClient) -> List[IndexQuote]:
@@ -877,6 +888,14 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     title = item.get_text(strip=True)
                     href = item.get("href", "")
                     if title and len(title) > 3 and not title.startswith("더보기"):
+                        # Clean title: ensure proper UTF-8 encoding
+                        try:
+                            title_clean = title.strip()
+                            # Remove any control characters that might cause issues
+                            title_clean = ''.join(char for char in title_clean if ord(char) >= 32 or char in '\n\r\t')
+                        except Exception:
+                            title_clean = title.strip()
+                        
                         if href.startswith("/"):
                             full_url = f"https://finance.naver.com{href}"
                         elif href.startswith("http"):
@@ -888,20 +907,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         
                         # Avoid duplicates
                         if not any(n.get("url") == full_url for n in news):
-                            # Ensure proper UTF-8 encoding for title
-                            try:
-                                title_clean = title.encode('utf-8', errors='ignore').decode('utf-8')
-                                news.append({
-                                    "title": title_clean,
-                                    "date": "",
-                                    "url": full_url,
-                                })
-                            except Exception:
-                                news.append({
-                                    "title": title,
-                                    "date": "",
-                                    "url": full_url,
-                                })
+                            news.append({
+                                "title": title_clean,
+                                "date": "",
+                                "url": full_url,
+                            })
                             if len(news) >= 5:
                                 break
             except Exception as e:
