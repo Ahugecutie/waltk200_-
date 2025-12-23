@@ -302,27 +302,42 @@ async def build_snapshot() -> dict:
         themes = detect_themes(all_rising)
 
     def signals_for(s: RisingStock) -> list[dict]:
+        """
+        Generate trading signals based on stock performance.
+        Refined to better match original EXE logic.
+        """
         sigs: list[dict] = []
-        # Heuristic signals (aligned with EXE analyzer logic)
+        
+        # Limit-up detection (상한가)
         if s.change_pct >= 29.8:
             sigs.append({"title": "🔒 상한가 홀딩 / 매수 금지", "desc": "상한가", "tone": "bad"})
-            # 상한가일 때도 거래대금/모멘텀에 따라 돌파매매 신호 추가
-            if s.trade_value >= 200000:
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.93):,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+            # Calculate stop-loss (7% below current price for limit-up)
+            stop_loss = int(s.price * 0.93)
+            if s.trade_value >= 200000:  # 20억 이상 = 거래대금 폭발
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
             else:
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.93):,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+        
+        # Strong breakout (20%+ but not limit-up)
         elif s.change_pct >= 20:
-            if s.trade_value >= 200000:
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.95):,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+            stop_loss = int(s.price * 0.95)  # 5% stop-loss for strong moves
+            if s.trade_value >= 200000:  # 20억 이상
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
             else:
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.95):,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+        
+        # Pullback entry opportunity (12%+)
         elif s.change_pct >= 12:
             sigs.append({"title": "🧲 눌림목 매수 (분할 진입)", "desc": "강세, 거래대금 확인", "tone": "ok"})
+        
+        # Moderate strength
         else:
             sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "강세, 변동성 유의", "tone": "neutral"})
 
-        if s.volume >= 20000000:
+        # Volume surge indicator
+        if s.volume >= 20000000:  # 2천만주 이상
             sigs.append({"title": "📈 거래량 급증", "desc": "수급 변동성 확대", "tone": "neutral"})
+        
         return sigs[:6]
 
     def ai_opinion_for(s: RisingStock) -> str:
