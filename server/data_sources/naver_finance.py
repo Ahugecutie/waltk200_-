@@ -368,38 +368,67 @@ async def build_snapshot() -> dict:
         
         return sigs[:6]
 
-    def ai_opinion_for(s: RisingStock) -> str:
+    def ai_opinion_for(s: RisingStock, detail: Optional[StockDetail] = None) -> str:
         """
         Generate AI investment opinion based on stock characteristics.
-        Refined to provide more nuanced advice matching original EXE.
+        Enhanced with news analysis and technical indicators when detail is available.
         """
-        # Limit-up scenario
+        parts = []
+        
+        # Investor trend analysis (if available)
+        if detail and detail.investor_trends and len(detail.investor_trends) > 0:
+            latest = detail.investor_trends[0]
+            if latest.foreigner > 100000:  # 외국인 순매수 1억 이상
+                parts.append("**외국인이 매수세를 주도**하고 있으며 주가 상승을 이끌고 있습니다.")
+            elif latest.foreigner < -100000:  # 외국인 순매도
+                parts.append("외국인 매도세가 지속되고 있어 주의가 필요합니다.")
+        
+        # News trigger analysis
+        if detail and detail.news and len(detail.news) > 0:
+            # Check for popular search keywords
+            news_list = detail.news if isinstance(detail.news, list) else []
+            news_titles = " ".join([(n.get("title", "") if isinstance(n, dict) else str(n)) for n in news_list[:3]])
+            if "인기 검색" in news_titles or "검색 종목" in news_titles:
+                parts.append("주가 상승의 주요 트리거는 **'직후 인기 검색 종목 20選'** 관련 이슈로 판단됩니다.")
+            elif any(kw in news_titles for kw in ["왔다", "구조대", "급등", "상한가"]):
+                parts.append("최근 뉴스 이슈가 주가에 긍정적 영향을 미치고 있습니다.")
+        
+        # Technical analysis (if pivot data available)
+        if detail and detail.pivot and detail.price:
+            current = detail.price
+            if detail.r2 and current >= detail.r2 * 0.98:  # 2차 저항선 근처
+                parts.append("기술적으로 **2차 저항선(R2)까지 돌파**한 강한 상승 구간이지만,")
+                if s.change_pct >= 20:
+                    parts.append("단기 과열 구간에 진입했으므로 추격매수는 신중해야 합니다.")
+                else:
+                    parts.append("추가 상승 여력이 있을 수 있으나 변동성에 주의하세요.")
+            elif detail.r1 and current >= detail.r1 * 0.98:  # 1차 저항선 근처
+                parts.append("1차 저항선(R1) 근처에서 저항을 받을 수 있습니다.")
+            elif detail.s1 and current <= detail.s1 * 1.02:  # 1차 지지선 근처
+                parts.append("1차 지지선(S1) 근처에서 지지를 받고 있습니다.")
+        
+        # Price action analysis
         if s.change_pct >= 29.8:
             if s.trade_value >= 200000:
-                return "상한가 구간입니다. 거래대금이 폭발적으로 증가했으나, 추격매수는 위험합니다. 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요."
+                parts.append("상한가 구간이며 거래대금이 폭발적으로 증가했으나, 추격매수는 위험합니다. 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요.")
             else:
-                return "상한가 구간입니다. 추격매수는 위험하며, 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요."
-        
-        # Strong breakout (20%+)
-        if s.change_pct >= 20:
+                parts.append("상한가 구간입니다. 추격매수는 위험하며, 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요.")
+        elif s.change_pct >= 20:
             if s.trade_value >= 200000:
-                return "급등 구간입니다. 거래대금이 크게 증가했으며, 추가 수급 유입을 확인하면서 손절 라인을 먼저 정하는 것이 좋습니다."
+                parts.append("급등 구간이며 거래대금이 크게 증가했습니다. 추가 수급 유입을 확인하면서 손절 라인을 먼저 정하는 것이 좋습니다.")
             else:
-                return "급등 구간입니다. 거래대금과 추가 수급 유입을 확인하면서, 손절 라인을 먼저 정하는 것이 좋습니다."
-        
-        # Pullback opportunity (12%+)
-        if s.change_pct >= 12:
+                parts.append("급등 구간입니다. 거래대금과 추가 수급 유입을 확인하면서, 손절 라인을 먼저 정하는 것이 좋습니다.")
+        elif s.change_pct >= 12:
             if s.volume >= 10000000:
-                return "강세 흐름입니다. 거래량이 활발하며, 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요."
+                parts.append("강세 흐름이며 거래량이 활발합니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요.")
             else:
-                return "강세 흐름입니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요."
+                parts.append("강세 흐름입니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요.")
+        elif s.change_pct >= 5:
+            parts.append("중간 강세입니다. 뉴스와 수급 변화를 지속적으로 모니터링하며, 추세가 지속되는지 확인하세요.")
+        else:
+            parts.append("단기 변동성이 낮은 편입니다. 뉴스/수급 변화를 확인하며 보수적으로 접근하세요.")
         
-        # Moderate movement
-        if s.change_pct >= 5:
-            return "중간 강세입니다. 뉴스와 수급 변화를 지속적으로 모니터링하며, 추세가 지속되는지 확인하세요."
-        
-        # Low volatility
-        return "단기 변동성이 낮은 편입니다. 뉴스/수급 변화를 확인하며 보수적으로 접근하세요."
+        return " ".join(parts) if parts else "분석 중..."
 
     return {
         "indices": [
@@ -419,7 +448,7 @@ async def build_snapshot() -> dict:
                 "link": f"https://finance.naver.com/item/main.naver?code={s.code}",
                 "score": calculate_score(s),  # Improved scoring based on multiple factors
                 "signals": signals_for(s),
-                "ai_opinion": ai_opinion_for(s),
+                "ai_opinion": ai_opinion_for(s, None),  # Basic opinion, will be enhanced with detail in modal
             }
             for s in top20
         ],

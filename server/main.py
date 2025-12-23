@@ -68,13 +68,15 @@ async def refresh(request: Request) -> JSONResponse:
 async def stock_detail(code: str, request: Request) -> JSONResponse:
     """
     Get detailed information for a specific stock.
-    Includes: pivot points, news, financials, investor trends.
+    Includes: pivot points, news, financials, investor trends, enhanced AI opinion.
     """
     token = (request.headers.get("X-App-Token") or "").strip()
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     
     import httpx
+    from server.data_sources.naver_finance import RisingStock, ai_opinion_for
+    
     async with httpx.AsyncClient(headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "ko-KR,ko;q=0.9"
@@ -83,6 +85,21 @@ async def stock_detail(code: str, request: Request) -> JSONResponse:
     
     if not detail:
         return JSONResponse({"ok": False, "error": "stock not found"}, status_code=404)
+    
+    # Create a RisingStock object for AI opinion generation
+    rising_stock = RisingStock(
+        code=detail.code,
+        name=detail.name,
+        price=detail.price,
+        change=detail.change,
+        change_pct=detail.change_pct,
+        volume=detail.volume,
+        trade_value=detail.trade_value,
+        market=detail.market,
+    )
+    
+    # Generate enhanced AI opinion with detail
+    enhanced_ai_opinion = ai_opinion_for(rising_stock, detail)
     
     # Convert to dict for JSON response
     result = {
@@ -104,6 +121,7 @@ async def stock_detail(code: str, request: Request) -> JSONResponse:
         "news": detail.news or [],
         "financials": detail.financials or [],
         "investor_trends": detail.investor_trends or [],
+        "ai_opinion": enhanced_ai_opinion,  # Enhanced with detail
     }
     
     return JSONResponse({"ok": True, "data": result})

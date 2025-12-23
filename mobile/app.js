@@ -248,6 +248,11 @@ async function openModal(stock) {
 }
 
 function renderStockDetail(detail) {
+  // Update AI opinion with enhanced detail (if available)
+  if (detail.ai_opinion && els.mAi) {
+    els.mAi.textContent = detail.ai_opinion;
+  }
+  
   // Pivot points
   if (detail.pivot && detail.pivot.pivot) {
     if (els.mPivot && els.mPivotSection) {
