@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: leadingstock
+    env: python
+    plan: free
+    buildCommand: pip install -r server/requirements.txt
+    startCommand: uvicorn server.main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: OWNER_NAME
+        value: 김성훈
+      # 선택: 토큰 설정 시 모바일에도 동일 토큰 입력 필요
+      # - key: APP_TOKEN
+      #   value: your_token
+      - key: AUTO_REFRESH_SEC
+        value: "60"
+
+
