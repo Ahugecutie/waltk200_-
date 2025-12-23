@@ -531,20 +531,18 @@ function connect() {
   stop();
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
   
-  // If no explicit server URL is set, skip WebSocket and go straight to polling
+  // Always start polling immediately (WebSocket is optional)
+  startPolling();
+  
+  // If no explicit server URL is set, skip WebSocket
   const savedUrl = localStorage.getItem("ls_server_url") || "";
   if (!savedUrl || savedUrl.trim() === "") {
     setBadge("badge--warn", "설정 필요");
     setStatus("서버 URL을 설정하거나 현재 서버를 사용합니다.");
-    // Use current host and go straight to polling
-    startPolling();
     return;
   }
   
-  // If server URL is set, use it for polling (WebSocket may fail, but HTTP should work)
-  startPolling();
-  return;
-  
+  // Try WebSocket connection in background (non-blocking)
   const url = wsUrlFromBase(baseUrl);
 
   setBadge("badge--warn", "연결 시도 중…");
