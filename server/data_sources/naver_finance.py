@@ -882,50 +882,50 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 f"https://finance.naver.com/item/frgn.naver?code={code}",
             ]
             for fin_url in financial_pages:
-            try:
-                fin_html = await _get(client, fin_url)
-                fin_soup = BeautifulSoup(fin_html, "html.parser")
-                fin_tables = fin_soup.select("table.type_2, table.tb_type1, table.sise, table.tb_type1_ifrs")
-                for table in fin_tables:
-                    headers = table.select("th")
-                    header_texts = [h.get_text(strip=True) for h in headers]
-                    has_sales = any("매출액" in h or "매출" in h for h in header_texts)
-                    has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
-                    
-                    if has_sales or has_profit:
-                        rows = table.select("tr")
-                        for row in rows[1:]:  # Skip header
-                            tds = row.select("td")
-                            if len(tds) >= 2:
-                                # First cell is usually period/row label
-                                period = tds[0].get_text(strip=True)
-                                # Find sales and profit columns
-                                sales = 0.0
-                                profit = 0.0
-                                for i, header in enumerate(header_texts):
-                                    if i + 1 < len(tds):
-                                        if "매출액" in header or "매출" in header:
-                                            sales = _to_float(tds[i + 1].get_text(strip=True))
-                                        elif "영업이익" in header or "영업" in header:
-                                            profit = _to_float(tds[i + 1].get_text(strip=True))
-                                
-                                if period and (sales > 0 or profit != 0):
-                                    financials.append({
-                                        "period": period,
-                                        "sales": sales,
-                                        "operating_profit": profit,
-                                    })
-                                    if len(financials) >= 3:  # Recent 3 periods
-                                        break
+                try:
+                    fin_html = await _get(client, fin_url)
+                    fin_soup = BeautifulSoup(fin_html, "html.parser")
+                    fin_tables = fin_soup.select("table.type_2, table.tb_type1, table.sise, table.tb_type1_ifrs")
+                    for table in fin_tables:
+                        headers = table.select("th")
+                        header_texts = [h.get_text(strip=True) for h in headers]
+                        has_sales = any("매출액" in h or "매출" in h for h in header_texts)
+                        has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
+                        
+                        if has_sales or has_profit:
+                            rows = table.select("tr")
+                            for row in rows[1:]:  # Skip header
+                                tds = row.select("td")
+                                if len(tds) >= 2:
+                                    # First cell is usually period/row label
+                                    period = tds[0].get_text(strip=True)
+                                    # Find sales and profit columns
+                                    sales = 0.0
+                                    profit = 0.0
+                                    for i, header in enumerate(header_texts):
+                                        if i + 1 < len(tds):
+                                            if "매출액" in header or "매출" in header:
+                                                sales = _to_float(tds[i + 1].get_text(strip=True))
+                                            elif "영업이익" in header or "영업" in header:
+                                                profit = _to_float(tds[i + 1].get_text(strip=True))
+                                    
+                                    if period and (sales > 0 or profit != 0):
+                                        financials.append({
+                                            "period": period,
+                                            "sales": sales,
+                                            "operating_profit": profit,
+                                        })
+                                        if len(financials) >= 3:  # Recent 3 periods
+                                            break
+                                if len(financials) > 0:
+                                    break
                             if len(financials) > 0:
                                 break
-                        if len(financials) > 0:
-                            break
-                if len(financials) > 0:
-                    break
-            except Exception as e:
-                print(f"Warning: Failed to fetch financial page {fin_url} for {code}: {e}")
-                continue
+                    if len(financials) > 0:
+                        break
+                except Exception as e:
+                    print(f"Warning: Failed to fetch financial page {fin_url} for {code}: {e}")
+                    continue
         
         # Investor trends (투자자별 매매동향) - parse from investor table
         # Try main page first (already loaded) for speed
@@ -965,49 +965,49 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 f"https://finance.naver.com/item/frgn.naver?code={code}",
             ]
             for inv_url in investor_pages:
-            try:
-                inv_html = await _get(client, inv_url)
-                inv_soup = BeautifulSoup(inv_html, "html.parser")
-                inv_tables = inv_soup.select("table.type_2, table.tb_type1, table.sise, table.type_1")
-                for table in inv_tables:
-                    headers = table.select("th")
-                    header_texts = [h.get_text(strip=True) for h in headers]
-                    has_institution = any("기관" in h for h in header_texts)
-                    has_foreigner = any("외국인" in h for h in header_texts)
-                    
-                    if has_institution and has_foreigner:
-                        rows = table.select("tr")
-                        for row in rows[1:]:  # Skip header
-                            tds = row.select("td")
-                            if len(tds) >= 3:
-                                date = tds[0].get_text(strip=True)
-                                # Find institution and foreigner columns
-                                institution = 0
-                                foreigner = 0
-                                for i, header in enumerate(header_texts):
-                                    if i + 1 < len(tds):
-                                        if "기관" in header:
-                                            institution = _to_int(tds[i + 1].get_text(strip=True))
-                                        elif "외국인" in header:
-                                            foreigner = _to_int(tds[i + 1].get_text(strip=True))
-                                
-                                if date:
-                                    investor_trends.append({
-                                        "date": date,
-                                        "institution": institution,
-                                        "foreigner": foreigner,
-                                    })
-                                    if len(investor_trends) >= 5:  # Recent 5 days
-                                        break
+                try:
+                    inv_html = await _get(client, inv_url)
+                    inv_soup = BeautifulSoup(inv_html, "html.parser")
+                    inv_tables = inv_soup.select("table.type_2, table.tb_type1, table.sise, table.type_1")
+                    for table in inv_tables:
+                        headers = table.select("th")
+                        header_texts = [h.get_text(strip=True) for h in headers]
+                        has_institution = any("기관" in h for h in header_texts)
+                        has_foreigner = any("외국인" in h for h in header_texts)
+                        
+                        if has_institution and has_foreigner:
+                            rows = table.select("tr")
+                            for row in rows[1:]:  # Skip header
+                                tds = row.select("td")
+                                if len(tds) >= 3:
+                                    date = tds[0].get_text(strip=True)
+                                    # Find institution and foreigner columns
+                                    institution = 0
+                                    foreigner = 0
+                                    for i, header in enumerate(header_texts):
+                                        if i + 1 < len(tds):
+                                            if "기관" in header:
+                                                institution = _to_int(tds[i + 1].get_text(strip=True))
+                                            elif "외국인" in header:
+                                                foreigner = _to_int(tds[i + 1].get_text(strip=True))
+                                    
+                                    if date:
+                                        investor_trends.append({
+                                            "date": date,
+                                            "institution": institution,
+                                            "foreigner": foreigner,
+                                        })
+                                        if len(investor_trends) >= 5:  # Recent 5 days
+                                            break
+                                if len(investor_trends) > 0:
+                                    break
                             if len(investor_trends) > 0:
                                 break
-                        if len(investor_trends) > 0:
-                            break
-                if len(investor_trends) > 0:
-                    break
-            except Exception as e:
-                print(f"Warning: Failed to fetch investor page {inv_url} for {code}: {e}")
-                continue
+                    if len(investor_trends) > 0:
+                        break
+                except Exception as e:
+                    print(f"Warning: Failed to fetch investor page {inv_url} for {code}: {e}")
+                    continue
         
         return StockDetail(
             code=code,
