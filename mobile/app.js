@@ -562,7 +562,9 @@ async function fetchSnapshot() {
     
     // Render the snapshot
     try {
-      renderSnapshot(obj);
+      // Extract data from response if wrapped
+      const snapshotData = obj.data || obj;
+      renderSnapshot(snapshotData);
       setBadge("badge--ok", "연결됨");
       setStatus("데이터를 수신했습니다.");
       return true;
