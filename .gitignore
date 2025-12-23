@@ -30,3 +30,15 @@ ios/
 *.aab
 
 
+# Android keystore
+*.hks
+*.jks
+
+# temp / zip
+*.zip
+
+# pyc
+__pycache__/
+*.pyc
+
+

@@ -99,9 +99,23 @@ def extract_entry_bytes(pyz_bytes: bytes, entry: PyzEntry) -> bytes:
         return raw
 
 
-def _sanitize_ascii(b: bytes) -> str:
-    # Replace non-printables with '.'
-    return bytes((c if 32 <= c <= 126 else 46) for c in b).decode("ascii", errors="ignore")
+def _sanitize_text(b: bytes) -> str:
+    """
+    Produce a human-readable snippet.
+    - Prefer UTF-8 decode to keep Korean strings if present in constants.
+    - Replace control characters with '.' but keep printable unicode.
+    """
+    s = b.decode("utf-8", errors="ignore")
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch in ("\n", "\r", "\t"):
+            out.append(" ")
+        elif o < 32:
+            out.append(".")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def snip_entries(
@@ -132,7 +146,7 @@ def snip_entries(
                 continue
             start = max(0, idx - 140)
             end = min(len(blob), idx + 320)
-            print(_sanitize_ascii(blob[start:end]))
+            print(_sanitize_text(blob[start:end]))
             snips += 1
             if snips >= max_snips_per_module:
                 break
@@ -163,6 +177,7 @@ def main() -> int:
     ap.add_argument("--scan", action="store_true")
     ap.add_argument("--snip", action="store_true", help="print snippet contexts for matching modules")
     ap.add_argument("--filter-prefix", default=None, help="only consider modules starting with this prefix (e.g. app.)")
+    ap.add_argument("--list-prefix", default=None, help="print all module names starting with this prefix and exit")
     args = ap.parse_args()
 
     pyz_path: Path = args.pyz
@@ -173,6 +188,13 @@ def main() -> int:
     print(f"pyc_magic={pyc_magic.hex().upper()}")
     print(f"toc_offset={toc_off}")
     print(f"entries={len(entries)}")
+
+    if args.list_prefix:
+        pref = args.list_prefix
+        for e in entries:
+            if e.name.startswith(pref):
+                print(e.name)
+        return 0
 
     # print a quick sample of non-stdlib looking modules
     # heuristic: show modules without a dot (top-level) and not obviously stdlib
@@ -232,6 +254,16 @@ def main() -> int:
             "eel.start",
             "cef",
             "webview",
+            # Korean keywords (feature labels)
+            "특이사항",
+            "AI 의견",
+            "AI 투자 의견",
+            "상한가",
+            "매수 금지",
+            "돌파 매매",
+            "눌림목",
+            "고가 놀이",
+            "추세 추종",
         ]
         print("\nSNIPPETS...")
         snip_entries(pyz_path, entries, needles, filter_prefix=args.filter_prefix)
