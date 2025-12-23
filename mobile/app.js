@@ -186,7 +186,9 @@ function renderThemes(themes) {
 
 async function openModal(stock) {
   els.mTitle.textContent = `${stock.name} (${stock.code})`;
-  els.mSub.textContent = `${stock.market ?? ""} · 현재가 ${fmtNum(stock.price)}원 · ${fmtPct(stock.change_pct)}`;
+  const pct = Number(stock.change_pct || 0);
+  const pctCls = pct >= 0 ? "up" : "down";
+  els.mSub.innerHTML = `${stock.market ?? ""} · 현재가 ${fmtNum(stock.price)}원 · <span class="${pctCls}">${fmtPct(pct)}</span>`;
   els.mPills.innerHTML = "";
   const pills = [
     `거래대금 ${fmtNum(stock.trade_value)}`,
