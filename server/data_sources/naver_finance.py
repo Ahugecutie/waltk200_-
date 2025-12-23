@@ -178,6 +178,47 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
     return out
 
 
+def calculate_score(stock: RisingStock) -> int:
+    """
+    Calculate stock score based on multiple factors.
+    This will be refined to match original EXE logic exactly.
+    
+    Factors considered:
+    - Change percentage (primary)
+    - Trade value (liquidity)
+    - Volume (participation)
+    - Market (KOSPI vs KOSDAQ)
+    """
+    base_score = stock.change_pct * 5  # Base: 5 points per 1% change
+    
+    # Trade value bonus (higher liquidity = higher score)
+    if stock.trade_value >= 500000:  # 50억 이상
+        base_score += 20
+    elif stock.trade_value >= 200000:  # 20억 이상
+        base_score += 10
+    elif stock.trade_value >= 100000:  # 10억 이상
+        base_score += 5
+    
+    # Volume bonus (high participation)
+    if stock.volume >= 50000000:  # 5천만주 이상
+        base_score += 15
+    elif stock.volume >= 20000000:  # 2천만주 이상
+        base_score += 8
+    elif stock.volume >= 10000000:  # 1천만주 이상
+        base_score += 3
+    
+    # Market bonus (KOSDAQ tends to be more volatile)
+    if stock.market == "KOSDAQ":
+        base_score += 2
+    
+    # Limit-up bonus
+    if stock.change_pct >= 29.8:
+        base_score += 10
+    
+    # Cap at 150 (as seen in original)
+    return int(min(150, max(0, round(base_score))))
+
+
 def detect_themes(stocks: List[RisingStock]) -> List[dict]:
     """
     Detect leading themes from stock names and group by common keywords.
@@ -310,7 +351,7 @@ async def build_snapshot() -> dict:
                 "volume": s.volume,
                 "trade_value": s.trade_value,
                 "link": f"https://finance.naver.com/item/main.naver?code={s.code}",
-                "score": int(min(150, max(0, round(s.change_pct * 5)))),  # placeholder scoring
+                "score": calculate_score(s),  # Improved scoring based on multiple factors
                 "signals": signals_for(s),
                 "ai_opinion": ai_opinion_for(s),
             }
