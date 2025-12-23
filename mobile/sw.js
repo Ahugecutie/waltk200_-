@@ -1,14 +1,15 @@
 /* Minimal offline-first service worker for PWA shell. */
-const CACHE = "leadingstock-pwa-v3";
+const CACHE = "leadingstock-pwa-v4";
 const ASSETS = [
-  "/",
-  "/index.html",
-  "/style.css",
-  "/app.js",
-  "/manifest.webmanifest",
+  "/app/",
+  "/app/index.html",
+  "/app/style.css",
+  "/app/app.js",
+  "/app/manifest.webmanifest",
+  "/app/sw.js",
   // Icons are optional; if missing, caching will ignore failures at runtime fetch.
-  "/icon-192.png",
-  "/icon-512.png",
+  "/app/icon-192.png",
+  "/app/icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -50,7 +51,7 @@ self.addEventListener("fetch", (event) => {
       return fetch(req).catch(async () => {
         // If offline and navigation, return cached shell.
         if (req.mode === "navigate") {
-          const shell = await caches.match("/index.html");
+          const shell = await caches.match("/app/index.html");
           if (shell) return shell;
         }
         throw new Error("offline");

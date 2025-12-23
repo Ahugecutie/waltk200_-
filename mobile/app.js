@@ -248,6 +248,10 @@ async function openModal(stock) {
     }
   } catch (err) {
     console.error("Failed to fetch stock detail:", err);
+    // Show error message in AI opinion section
+    if (els.mAi) {
+      els.mAi.textContent = "상세 정보를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+    }
   }
 }
 

@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Set, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+import httpx
 
-from server.data_sources.naver_finance import build_snapshot, fetch_stock_detail
+from server.data_sources.naver_finance import build_snapshot, fetch_stock_detail, RisingStock, ai_opinion_for
 
 
 # --------------------------------------------------
@@ -28,9 +29,20 @@ AUTO_REFRESH_SEC = float(os.environ.get("AUTO_REFRESH_SEC", "60").strip() or "60
 # --------------------------------------------------
 # FastAPI App
 # --------------------------------------------------
-app = FastAPI(title="LeadingStock API", version="0.1.0")
+app = FastAPI(
+    title="LeadingStock API",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-# ✅ 반드시 여기서 StaticFiles 등록
+# ✅ 루트 경로: /app/로 리다이렉트
+@app.get("/")
+async def root():
+    """루트 경로 접근 시 PWA 앱으로 리다이렉트"""
+    return RedirectResponse(url="/app/", status_code=302)
+
+# ✅ StaticFiles 마운트 (API 라우트 이후에 배치)
 if MOBILE_DIR.exists():
     app.mount(
         "/app",
@@ -101,14 +113,14 @@ async def stock_detail(code: str, request: Request) -> JSONResponse:
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
 
-    import httpx
-    from server.data_sources.naver_finance import RisingStock, ai_opinion_for
-
-    async with httpx.AsyncClient(headers={
-        "User-Agent": "Mozilla/5.0",
-        "Accept-Language": "ko-KR,ko;q=0.9"
-    }) as client:
-        detail = await fetch_stock_detail(client, code)
+    try:
+        async with httpx.AsyncClient(headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Language": "ko-KR,ko;q=0.9"
+        }, timeout=20.0) as client:
+            detail = await fetch_stock_detail(client, code)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"failed to fetch stock data: {str(e)}"}, status_code=500)
 
     if not detail:
         return JSONResponse({"ok": False, "error": "stock not found"}, status_code=404)
