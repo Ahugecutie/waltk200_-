@@ -59,7 +59,10 @@ function clearSettings() {
 
 function normalizeBaseUrl(input) {
   const v = (input || "").trim();
-  if (!v) return `${location.protocol}//${location.host}`;
+  if (!v) {
+    // Default to current host if no URL is set
+    return `${location.protocol}//${location.host}`;
+  }
   // Accept http(s)://host[:port] only; strip trailing slashes.
   return v.replace(/\/+$/, "");
 }
@@ -239,30 +242,19 @@ async function fetchSnapshot() {
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
   const token = (localStorage.getItem("ls_token") || "").trim();
   
-  // Check if server URL is configured
-  const savedUrl = localStorage.getItem("ls_server_url") || "";
-  if (!savedUrl || savedUrl.trim() === "") {
-    setBadge("badge--warn", "설정 필요");
-    setStatus("서버 URL을 설정해주세요.");
-    if (els.stocksTbody) {
-      els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">서버 URL이 설정되지 않았습니다.</td></tr>`;
-    }
-    return false;
-  }
-  
   const snapUrl = httpUrl(baseUrl, "/snapshot");
   
-  // Create timeout manually for better compatibility
-  const timeoutId = setTimeout(() => {
-    throw new Error("Request timeout");
-  }, 15000);
-  
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
     const res = await fetch(snapUrl, {
       headers: token ? { "X-App-Token": token } : undefined,
       cache: "no-store",
+      signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const obj = await res.json();
     if (!obj || !obj.data) throw new Error("Invalid response format");
@@ -271,12 +263,18 @@ async function fetchSnapshot() {
     setStatus("데이터를 수신했습니다.");
     return true;
   } catch (err) {
-    clearTimeout(timeoutId);
-    console.error("fetchSnapshot error:", err);
+    if (err.name === "AbortError") {
+      console.error("fetchSnapshot timeout");
+    } else {
+      console.error("fetchSnapshot error:", err);
+    }
     showServerDown();
     // Ensure table shows error state
-    if (els.stocksTbody && els.stocksTbody.innerHTML.includes("데이터를 불러오는 중")) {
-      els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">서버 연결 실패. 다시 시도해주세요.</td></tr>`;
+    if (els.stocksTbody) {
+      const currentText = els.stocksTbody.textContent || "";
+      if (currentText.includes("데이터를 불러오는 중") || currentText.trim() === "") {
+        els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">서버 연결 실패. 다시 시도해주세요.</td></tr>`;
+      }
     }
     return false;
   }
