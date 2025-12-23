@@ -400,7 +400,10 @@ function renderStocks(stocks) {
 function renderSnapshot(obj) {
   try {
     // Keep debug json
-    els.lastPayload.textContent = JSON.stringify(obj, null, 2);
+    if (els.lastPayload) {
+      els.lastPayload.textContent = JSON.stringify(obj, null, 2);
+    }
+    
     const data = obj?.data || {};
     
     // Handle empty or error data
@@ -412,16 +415,23 @@ function renderSnapshot(obj) {
       return;
     }
     
+    // Render indices
     const indices = Array.isArray(data.indices) ? data.indices : [];
     const kospi = indices.find((x) => (x.name || "").toUpperCase() === "KOSPI");
     const kosdaq = indices.find((x) => (x.name || "").toUpperCase() === "KOSDAQ");
     setIndexBox("kospi", kospi);
     setIndexBox("kosdaq", kosdaq);
+    
+    // Render themes
     renderThemes(data.themes);
+    
+    // Render stocks
     renderStocks(data.stocks);
   } catch (err) {
-    console.error("renderSnapshot error:", err);
-    els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">데이터 렌더링 오류가 발생했습니다.</td></tr>`;
+    console.error("renderSnapshot error:", err, obj);
+    if (els.stocksTbody) {
+      els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">데이터 렌더링 오류가 발생했습니다: ${err.message}</td></tr>`;
+    }
   }
 }
 
@@ -447,7 +457,7 @@ async function fetchSnapshot() {
     if (!obj) throw new Error("Invalid response format");
     
     // Handle empty data case (initial loading)
-    if (obj.type === "empty" || !obj.data) {
+    if (obj.type === "empty") {
       setBadge("badge--warn", "데이터 로딩 중");
       setStatus("서버가 데이터를 수집 중입니다. 잠시 후 다시 시도해주세요.");
       // Retry after 5 seconds
@@ -455,10 +465,27 @@ async function fetchSnapshot() {
       return false;
     }
     
-    renderSnapshot(obj);
-    setBadge("badge--ok", "연결됨");
-    setStatus("데이터를 수신했습니다.");
-    return true;
+    // Check if data exists (but allow empty arrays)
+    if (!obj.data) {
+      console.warn("Response missing data field:", obj);
+      setBadge("badge--warn", "데이터 로딩 중");
+      setStatus("서버가 데이터를 수집 중입니다. 잠시 후 다시 시도해주세요.");
+      setTimeout(() => fetchSnapshot(), 5000);
+      return false;
+    }
+    
+    // Render the snapshot
+    try {
+      renderSnapshot(obj);
+      setBadge("badge--ok", "연결됨");
+      setStatus("데이터를 수신했습니다.");
+      return true;
+    } catch (renderErr) {
+      console.error("Error rendering snapshot:", renderErr);
+      setBadge("badge--bad", "렌더링 오류");
+      setStatus("데이터 렌더링 중 오류가 발생했습니다.");
+      return false;
+    }
   } catch (err) {
     if (err.name === "AbortError") {
       console.error("fetchSnapshot timeout");
@@ -514,6 +541,10 @@ function connect() {
     return;
   }
   
+  // If server URL is set, use it for polling (WebSocket may fail, but HTTP should work)
+  startPolling();
+  return;
+  
   const url = wsUrlFromBase(baseUrl);
 
   setBadge("badge--warn", "연결 시도 중…");
@@ -536,14 +567,21 @@ function connect() {
   };
 
   ws.onmessage = (ev) => {
-    // Expect JSON payload; fallback to raw text.
-    let text = ev.data;
     try {
       const obj = JSON.parse(ev.data);
-      text = JSON.stringify(obj, null, 2);
-    } catch {}
-    els.lastPayload.textContent = text;
+      els.lastPayload.textContent = JSON.stringify(obj, null, 2);
+  
+      // 🔥🔥🔥 이 한 줄이 없어서 화면이 비어있던 것
+      if (obj.type === "snapshot") {
+        renderSnapshot(obj);
+        setBadge("badge--ok", "연결됨");
+        setStatus("실시간 데이터를 수신했습니다.");
+      }
+    } catch (err) {
+      console.error("WS message parse error:", err);
+    }
   };
+  
 
   ws.onerror = () => {
     // onclose will handle message.

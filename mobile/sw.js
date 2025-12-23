@@ -1,5 +1,5 @@
 /* Minimal offline-first service worker for PWA shell. */
-const CACHE = "leadingstock-pwa-v4";
+const CACHE = "leadingstock-pwa-v5";
 const ASSETS = [
   "/app/",
   "/app/index.html",
