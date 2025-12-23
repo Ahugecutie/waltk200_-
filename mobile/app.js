@@ -218,15 +218,26 @@ async function openModal(stock) {
     els.mSignals.appendChild(div);
   }
 
-  // Ensure ai_opinion is properly displayed
-  const aiText = stock?.ai_opinion || "";
-  els.mAi.textContent = aiText || "추후 기존 EXE 로직과 동일하게 연결됩니다.";
+  // Show loading state
+  els.mAi.textContent = "상세 정보를 불러오는 중...";
   
-  // Hide detail sections initially
-  if (els.mPivotSection) els.mPivotSection.style.display = "none";
-  if (els.mNewsSection) els.mNewsSection.style.display = "none";
-  if (els.mFinancialSection) els.mFinancialSection.style.display = "none";
-  if (els.mInvestorSection) els.mInvestorSection.style.display = "none";
+  // Hide detail sections initially and show loading placeholders
+  if (els.mPivotSection) {
+    els.mPivotSection.style.display = "block";
+    if (els.mPivot) els.mPivot.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">로딩 중...</div>';
+  }
+  if (els.mNewsSection) {
+    els.mNewsSection.style.display = "block";
+    if (els.mNews) els.mNews.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">로딩 중...</div>';
+  }
+  if (els.mFinancialSection) {
+    els.mFinancialSection.style.display = "block";
+    if (els.mFinancial) els.mFinancial.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">로딩 중...</div>';
+  }
+  if (els.mInvestorSection) {
+    els.mInvestorSection.style.display = "block";
+    if (els.mInvestor) els.mInvestor.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">로딩 중...</div>';
+  }
   
   // Show modal first
   if (typeof els.modal.showModal === "function") els.modal.showModal();
@@ -277,6 +288,9 @@ async function openModal(stock) {
 
 function renderStockDetail(detail) {
   console.log("Rendering stock detail:", detail);
+  console.log("News:", detail.news);
+  console.log("Financials:", detail.financials);
+  console.log("Investor trends:", detail.investor_trends);
   
   // Update AI opinion with enhanced detail (if available)
   if (detail.ai_opinion && els.mAi) {
