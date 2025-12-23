@@ -425,7 +425,7 @@ function renderStocks(stocks) {
     return;
   }
   // Store stocks array for modal access
-  currentStocks = stocks.slice(0, 20);
+  currentStocks = stocks.slice(0, 30);
   els.stocksTbody.innerHTML = "";
   currentStocks.forEach((s, idx) => {
     const tr = document.createElement("tr");
