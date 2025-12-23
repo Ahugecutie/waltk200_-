@@ -861,34 +861,34 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
                     
                     if has_sales or has_profit:
-                    rows = table.select("tr")
-                    for row in rows[1:]:  # Skip header
-                        tds = row.select("td")
-                        if len(tds) >= 2:
-                            # First cell is usually period/row label
-                            period = tds[0].get_text(strip=True)
-                            # Find sales and profit columns
-                            sales = 0.0
-                            profit = 0.0
-                            for i, header in enumerate(header_texts):
-                                if i + 1 < len(tds):
-                                    if "매출액" in header or "매출" in header:
-                                        sales = _to_float(tds[i + 1].get_text(strip=True))
-                                    elif "영업이익" in header or "영업" in header:
-                                        profit = _to_float(tds[i + 1].get_text(strip=True))
-                            
-                            if period and (sales > 0 or profit != 0):
-                                financials.append({
-                                    "period": period,
-                                    "sales": sales,
-                                    "operating_profit": profit,
-                                })
-                                if len(financials) >= 3:  # Recent 3 periods
-                                    break
+                        rows = table.select("tr")
+                        for row in rows[1:]:  # Skip header
+                            tds = row.select("td")
+                            if len(tds) >= 2:
+                                # First cell is usually period/row label
+                                period = tds[0].get_text(strip=True)
+                                # Find sales and profit columns
+                                sales = 0.0
+                                profit = 0.0
+                                for i, header in enumerate(header_texts):
+                                    if i + 1 < len(tds):
+                                        if "매출액" in header or "매출" in header:
+                                            sales = _to_float(tds[i + 1].get_text(strip=True))
+                                        elif "영업이익" in header or "영업" in header:
+                                            profit = _to_float(tds[i + 1].get_text(strip=True))
+                                
+                                if period and (sales > 0 or profit != 0):
+                                    financials.append({
+                                        "period": period,
+                                        "sales": sales,
+                                        "operating_profit": profit,
+                                    })
+                                    if len(financials) >= 3:  # Recent 3 periods
+                                        break
+                            if len(financials) > 0:
+                                break
                         if len(financials) > 0:
                             break
-                    if len(financials) > 0:
-                        break
                 if len(financials) > 0:
                     break
             except Exception as e:
@@ -943,33 +943,33 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     has_foreigner = any("외국인" in h for h in header_texts)
                     
                     if has_institution and has_foreigner:
-                    rows = table.select("tr")
-                    for row in rows[1:]:  # Skip header
-                        tds = row.select("td")
-                        if len(tds) >= 3:
-                            date = tds[0].get_text(strip=True)
-                            # Find institution and foreigner columns
-                            institution = 0
-                            foreigner = 0
-                            for i, header in enumerate(header_texts):
-                                if i + 1 < len(tds):
-                                    if "기관" in header:
-                                        institution = _to_int(tds[i + 1].get_text(strip=True))
-                                    elif "외국인" in header:
-                                        foreigner = _to_int(tds[i + 1].get_text(strip=True))
-                            
-                            if date:
-                                investor_trends.append({
-                                    "date": date,
-                                    "institution": institution,
-                                    "foreigner": foreigner,
-                                })
-                                if len(investor_trends) >= 5:  # Recent 5 days
-                                    break
+                        rows = table.select("tr")
+                        for row in rows[1:]:  # Skip header
+                            tds = row.select("td")
+                            if len(tds) >= 3:
+                                date = tds[0].get_text(strip=True)
+                                # Find institution and foreigner columns
+                                institution = 0
+                                foreigner = 0
+                                for i, header in enumerate(header_texts):
+                                    if i + 1 < len(tds):
+                                        if "기관" in header:
+                                            institution = _to_int(tds[i + 1].get_text(strip=True))
+                                        elif "외국인" in header:
+                                            foreigner = _to_int(tds[i + 1].get_text(strip=True))
+                                
+                                if date:
+                                    investor_trends.append({
+                                        "date": date,
+                                        "institution": institution,
+                                        "foreigner": foreigner,
+                                    })
+                                    if len(investor_trends) >= 5:  # Recent 5 days
+                                        break
+                            if len(investor_trends) > 0:
+                                break
                         if len(investor_trends) > 0:
                             break
-                    if len(investor_trends) > 0:
-                        break
                 if len(investor_trends) > 0:
                     break
             except Exception as e:
