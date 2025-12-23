@@ -402,6 +402,16 @@ function renderSnapshot(obj) {
     // Keep debug json
     els.lastPayload.textContent = JSON.stringify(obj, null, 2);
     const data = obj?.data || {};
+    
+    // Handle empty or error data
+    if (obj.type === "empty" || data.error) {
+      if (data.error) {
+        setStatus(`데이터 수집 중 오류: ${data.error}`);
+      }
+      // Keep loading state
+      return;
+    }
+    
     const indices = Array.isArray(data.indices) ? data.indices : [];
     const kospi = indices.find((x) => (x.name || "").toUpperCase() === "KOSPI");
     const kosdaq = indices.find((x) => (x.name || "").toUpperCase() === "KOSDAQ");
@@ -434,7 +444,17 @@ async function fetchSnapshot() {
     
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const obj = await res.json();
-    if (!obj || !obj.data) throw new Error("Invalid response format");
+    if (!obj) throw new Error("Invalid response format");
+    
+    // Handle empty data case (initial loading)
+    if (obj.type === "empty" || !obj.data) {
+      setBadge("badge--warn", "데이터 로딩 중");
+      setStatus("서버가 데이터를 수집 중입니다. 잠시 후 다시 시도해주세요.");
+      // Retry after 5 seconds
+      setTimeout(() => fetchSnapshot(), 5000);
+      return false;
+    }
+    
     renderSnapshot(obj);
     setBadge("badge--ok", "연결됨");
     setStatus("데이터를 수신했습니다.");
