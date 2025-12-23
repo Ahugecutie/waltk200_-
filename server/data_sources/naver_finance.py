@@ -810,6 +810,15 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     href = item.get("href", "")
                     # More lenient title filter - accept any meaningful title
                     if title and len(title) > 2 and not any(skip in title for skip in ["더보기", "전체보기", "▼", "▲", "펼치기"]):
+                        # Clean title: ensure proper UTF-8 encoding
+                        try:
+                            # BeautifulSoup should already handle encoding, but ensure it's clean
+                            title_clean = title.strip()
+                            # Remove any control characters that might cause issues
+                            title_clean = ''.join(char for char in title_clean if ord(char) >= 32 or char in '\n\r\t')
+                        except Exception:
+                            title_clean = title.strip()
+                        
                         # Extract date
                         date = ""
                         parent = item.parent
