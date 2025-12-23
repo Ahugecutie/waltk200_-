@@ -235,15 +235,33 @@ async function openModal(stock) {
     const token = (localStorage.getItem("ls_token") || "").trim();
     const detailUrl = httpUrl(baseUrl, `/stock/${stock.code}`);
     
+    console.log("Fetching stock detail from:", detailUrl);
+    
     const res = await fetch(detailUrl, {
       headers: token ? { "X-App-Token": token } : undefined,
       cache: "no-store",
     });
     
-    if (res.ok) {
-      const result = await res.json();
-      if (result.ok && result.data) {
-        renderStockDetail(result.data);
+    console.log("Stock detail response status:", res.status);
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("Stock detail API error:", res.status, errorText);
+      if (els.mAi) {
+        els.mAi.textContent = `상세 정보를 불러오는 중 오류가 발생했습니다 (HTTP ${res.status}).`;
+      }
+      return;
+    }
+    
+    const result = await res.json();
+    console.log("Stock detail result:", result);
+    
+    if (result.ok && result.data) {
+      renderStockDetail(result.data);
+    } else {
+      console.warn("Stock detail response missing data:", result);
+      if (els.mAi) {
+        els.mAi.textContent = result.error || "상세 정보를 불러올 수 없습니다.";
       }
     }
   } catch (err) {
@@ -256,6 +274,7 @@ async function openModal(stock) {
 }
 
 function renderStockDetail(detail) {
+  console.log("Rendering stock detail:", detail);
   
   // Update AI opinion with enhanced detail (if available)
   if (detail.ai_opinion && els.mAi) {
@@ -296,8 +315,14 @@ function renderStockDetail(detail) {
       }).join("");
       els.mNewsSection.style.display = "block";
     }
-  } else if (els.mNewsSection) {
-    els.mNewsSection.style.display = "none";
+  } else {
+    // Show "no news" message
+    if (els.mNews && els.mNewsSection) {
+      els.mNews.innerHTML = '<div class="newsItem" style="color: var(--muted);">관련 뉴스가 없습니다.</div>';
+      els.mNewsSection.style.display = "block";
+    } else if (els.mNewsSection) {
+      els.mNewsSection.style.display = "none";
+    }
   }
   
   // Financials
