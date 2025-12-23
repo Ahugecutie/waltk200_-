@@ -542,6 +542,15 @@ async function fetchSnapshot() {
       return false;
     }
     
+    // Handle warming_up status (cache not ready yet)
+    if (obj.status === "warming_up" || (obj.ok === false && obj.status === "warming_up")) {
+      setBadge("badge--warn", "데이터 준비 중");
+      setStatus(obj.message || "데이터 준비 중 (최초 1회)");
+      // Retry after 5 seconds
+      setTimeout(() => fetchSnapshot(), 5000);
+      return false;
+    }
+    
     // Check if data exists (but allow empty arrays)
     if (!obj.data) {
       console.warn("Response missing data field:", obj);
