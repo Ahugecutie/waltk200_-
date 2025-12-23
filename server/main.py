@@ -11,6 +11,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from server.data_sources.naver_finance import build_snapshot
+
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 MOBILE_DIR = APP_ROOT / "mobile"
@@ -25,6 +27,7 @@ app = FastAPI(title="LeadingStock API", version="0.1.0")
 _latest_payload: Optional[dict] = None
 _latest_lock = asyncio.Lock()
 _refresh_now = asyncio.Event()
+_inflight_refresh: Optional[asyncio.Task] = None
 
 
 @app.get("/health")
@@ -122,17 +125,51 @@ async def _startup() -> None:
     if MOBILE_DIR.exists():
         app.mount("/", StaticFiles(directory=str(MOBILE_DIR), html=True), name="mobile")
 
-    # Refresh loop (placeholder). Replace this with the EXE logic output later.
+    async def do_refresh(seq: int) -> dict:
+        # Guard against concurrent refresh storms
+        global _inflight_refresh
+        if _inflight_refresh and not _inflight_refresh.done():
+            try:
+                return await asyncio.wait_for(_inflight_refresh, timeout=20.0)
+            except Exception:
+                pass
+
+        async def _work() -> dict:
+            data = await build_snapshot()
+            return {
+                "type": "snapshot",
+                "seq": seq,
+                "ts": int(time.time()),
+                "owner": OWNER_NAME,
+                "data": data,
+            }
+
+        _inflight_refresh = asyncio.create_task(_work())
+        return await asyncio.wait_for(_inflight_refresh, timeout=25.0)
+
+    # Refresh loop (real snapshot). Manual refresh triggers immediate recalculation.
     async def refresh_loop() -> None:
         i = 0
         while True:
             i += 1
-            payload = {
-                "type": "snapshot",
-                "seq": i,
-                "ts": int(time.time()),
-                "owner": OWNER_NAME,
-            }
+            try:
+                payload = await do_refresh(i)
+            except Exception as e:
+                # Keep last payload if data source fails, but still update heartbeat
+                payload = {
+                    "type": "snapshot",
+                    "seq": i,
+                    "ts": int(time.time()),
+                    "owner": OWNER_NAME,
+                    "data": {
+                        "indices": [],
+                        "themes": [],
+                        "stocks": [],
+                        "source": "error",
+                        "error": str(e),
+                    },
+                }
+
             async with _latest_lock:
                 global _latest_payload
                 _latest_payload = payload

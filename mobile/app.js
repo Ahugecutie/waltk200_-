@@ -10,7 +10,22 @@ const els = {
   token: document.getElementById("token"),
   saveBtn: document.getElementById("saveBtn"),
   refreshBtn: document.getElementById("refreshBtn"),
+  refreshBtn2: document.getElementById("refreshBtn2"),
   clearBtn: document.getElementById("clearBtn"),
+  kospiValue: document.getElementById("kospiValue"),
+  kospiSub: document.getElementById("kospiSub"),
+  kosdaqValue: document.getElementById("kosdaqValue"),
+  kosdaqSub: document.getElementById("kosdaqSub"),
+  themesEmpty: document.getElementById("themesEmpty"),
+  themesList: document.getElementById("themesList"),
+  stocksTbody: document.getElementById("stocksTbody"),
+  modal: document.getElementById("modal"),
+  mTitle: document.getElementById("mTitle"),
+  mSub: document.getElementById("mSub"),
+  mPills: document.getElementById("mPills"),
+  mLink: document.getElementById("mLink"),
+  mAi: document.getElementById("mAi"),
+  mClose: document.getElementById("mClose"),
 };
 
 function setBadge(kind, text) {
@@ -98,6 +113,100 @@ function showServerDown() {
   setStatus(`${OWNER_NAME}님에 컴퓨터가 꺼져있습니다`);
 }
 
+function fmtNum(n) {
+  if (n === null || n === undefined) return "-";
+  try { return Number(n).toLocaleString("ko-KR"); } catch { return String(n); }
+}
+
+function fmtPct(n) {
+  if (n === null || n === undefined) return "-";
+  const v = Number(n);
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}%`;
+}
+
+function setIndexBox(prefix, q) {
+  if (!q) {
+    els[`${prefix}Value`].textContent = "-";
+    els[`${prefix}Sub`].textContent = "-";
+    return;
+  }
+  els[`${prefix}Value`].textContent = fmtNum(q.value);
+  const ch = Number(q.change || 0);
+  const sign = ch > 0 ? "+" : "";
+  els[`${prefix}Sub`].textContent = `${sign}${fmtNum(ch)} · ${fmtPct(q.change_pct || 0)}`;
+  els[`${prefix}Sub`].classList.remove("up", "down");
+  els[`${prefix}Sub`].classList.add(ch >= 0 ? "up" : "down");
+}
+
+function renderThemes(themes) {
+  if (!Array.isArray(themes) || themes.length === 0) {
+    els.themesEmpty.hidden = false;
+    els.themesList.hidden = true;
+    els.themesList.innerHTML = "";
+    return;
+  }
+  els.themesEmpty.hidden = true;
+  els.themesList.hidden = false;
+  els.themesList.innerHTML = themes.slice(0, 5).map((t) => `<li>${t.name ?? t}</li>`).join("");
+}
+
+function openModal(stock) {
+  els.mTitle.textContent = `${stock.name} (${stock.code})`;
+  els.mSub.textContent = `${stock.market ?? ""} · 현재가 ${fmtNum(stock.price)}원 · ${fmtPct(stock.change_pct)}`;
+  els.mPills.innerHTML = "";
+  const pills = [
+    `거래대금 ${fmtNum(stock.trade_value)}`,
+    `거래량 ${fmtNum(stock.volume)}`,
+    `Score ${fmtNum(stock.score)}`,
+  ];
+  for (const p of pills) {
+    const div = document.createElement("div");
+    div.className = "pill";
+    div.textContent = p;
+    els.mPills.appendChild(div);
+  }
+  els.mLink.href = stock.link || "#";
+  els.mAi.textContent = "추후 기존 EXE 로직과 동일하게 연결됩니다.";
+  if (typeof els.modal.showModal === "function") els.modal.showModal();
+}
+
+function renderStocks(stocks) {
+  if (!Array.isArray(stocks) || stocks.length === 0) {
+    els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">데이터가 없습니다.</td></tr>`;
+    return;
+  }
+  els.stocksTbody.innerHTML = "";
+  stocks.slice(0, 20).forEach((s) => {
+    const tr = document.createElement("tr");
+    tr.className = "clickable";
+    const pct = Number(s.change_pct || 0);
+    const pctCls = pct >= 0 ? "up" : "down";
+    tr.innerHTML = `
+      <td>${s.name}</td>
+      <td class="right">${fmtNum(s.price)}</td>
+      <td class="right ${pctCls}">${fmtPct(pct)}</td>
+      <td class="right">${fmtNum(s.trade_value)}</td>
+      <td class="right">${fmtNum(s.score)}</td>
+    `;
+    tr.addEventListener("click", () => openModal(s));
+    els.stocksTbody.appendChild(tr);
+  });
+}
+
+function renderSnapshot(obj) {
+  // Keep debug json
+  els.lastPayload.textContent = JSON.stringify(obj, null, 2);
+  const data = obj?.data || {};
+  const indices = Array.isArray(data.indices) ? data.indices : [];
+  const kospi = indices.find((x) => (x.name || "").toUpperCase() === "KOSPI");
+  const kosdaq = indices.find((x) => (x.name || "").toUpperCase() === "KOSDAQ");
+  setIndexBox("kospi", kospi);
+  setIndexBox("kosdaq", kosdaq);
+  renderThemes(data.themes);
+  renderStocks(data.stocks);
+}
+
 async function fetchSnapshot() {
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
   const token = (localStorage.getItem("ls_token") || "").trim();
@@ -109,7 +218,7 @@ async function fetchSnapshot() {
     });
     if (!res.ok) throw new Error(String(res.status));
     const obj = await res.json();
-    els.lastPayload.textContent = JSON.stringify(obj, null, 2);
+    renderSnapshot(obj);
     setBadge("badge--ok", "연결됨");
     setStatus("데이터를 수신했습니다.");
     return true;
@@ -196,6 +305,14 @@ els.saveBtn.addEventListener("click", () => {
 
 els.refreshBtn.addEventListener("click", () => {
   triggerRefresh();
+});
+
+els.refreshBtn2?.addEventListener("click", () => {
+  triggerRefresh();
+});
+
+els.mClose?.addEventListener("click", () => {
+  try { els.modal.close(); } catch {}
 });
 
 els.clearBtn.addEventListener("click", () => {

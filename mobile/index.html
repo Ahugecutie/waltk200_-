@@ -45,7 +45,72 @@
         <h2 class="subtitle">최근 수신</h2>
         <pre id="lastPayload" class="mono">(아직 없음)</pre>
       </section>
+
+      <section class="card card--flush">
+        <div class="grid2">
+          <div class="ibox">
+            <div class="ibox__label">KOSPI</div>
+            <div class="ibox__value" id="kospiValue">-</div>
+            <div class="ibox__sub" id="kospiSub">-</div>
+          </div>
+          <div class="ibox">
+            <div class="ibox__label">KOSDAQ</div>
+            <div class="ibox__value" id="kosdaqValue">-</div>
+            <div class="ibox__sub" id="kosdaqSub">-</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sectionHead">
+          <h2 class="title">오늘의 주도 테마 (Top 5)</h2>
+        </div>
+        <div id="themesEmpty" class="empty">현재 시장을 주도하는 뚜렷한 테마가 없습니다. 개별주 장세일 수 있습니다.</div>
+        <ul id="themesList" class="list" hidden></ul>
+      </section>
+
+      <section class="card">
+        <div class="sectionHead">
+          <h2 class="title">개별 급등주 / 틈새 공략 (Top 20)</h2>
+          <button id="refreshBtn2" class="btn btn--small">데이터 갱신</button>
+        </div>
+
+        <div class="tableWrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                <th class="right">현재가</th>
+                <th class="right">등락률</th>
+                <th class="right">거래대금</th>
+                <th class="right">Score</th>
+              </tr>
+            </thead>
+            <tbody id="stocksTbody">
+              <tr><td colspan="5" class="muted">데이터를 불러오는 중…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
+
+    <dialog id="modal" class="modal">
+      <div class="modal__head">
+        <div>
+          <div class="modal__title" id="mTitle">-</div>
+          <div class="modal__sub" id="mSub">-</div>
+        </div>
+        <button id="mClose" class="iconBtn" aria-label="닫기">×</button>
+      </div>
+      <div class="modal__body">
+        <div class="pillRow" id="mPills"></div>
+        <a id="mLink" class="link" href="#" target="_blank" rel="noreferrer">네이버 금융에서 더보기</a>
+        <div class="mini">
+          <div class="mini__label">AI 투자 의견 (Beta)</div>
+          <div class="mini__box" id="mAi">추후 기존 EXE 로직과 동일하게 연결됩니다.</div>
+        </div>
+      </div>
+    </dialog>
 
     <script src="/app.js" defer></script>
     <script>
