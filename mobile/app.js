@@ -329,4 +329,11 @@ window.addEventListener("offline", () => {
 loadSettings();
 connect();
 
+// Ask SW to activate new versions immediately (helps PWA update).
+if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+  try {
+    navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
+  } catch {}
+}
+
 

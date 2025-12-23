@@ -1,5 +1,5 @@
 /* Minimal offline-first service worker for PWA shell. */
-const CACHE = "leadingstock-pwa-v1";
+const CACHE = "leadingstock-pwa-v2";
 const ASSETS = [
   "/",
   "/index.html",
@@ -30,6 +30,13 @@ self.addEventListener("activate", (event) => {
       Promise.all(keys.map((k) => (k === CACHE ? Promise.resolve() : caches.delete(k))))
     )
   );
+  self.clients.claim();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {

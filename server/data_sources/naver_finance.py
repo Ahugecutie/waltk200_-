@@ -84,18 +84,33 @@ async def fetch_index_quotes(client: httpx.AsyncClient) -> List[IndexQuote]:
     async def fetch_one(code: str) -> Optional[IndexQuote]:
         try:
             html = await _get(client, f"https://finance.naver.com/sise/sise_index.naver?code={code}")
-            now_m = re.search(r'id\s*=\s*["\\\']now_value["\\\']\s*>\s*([0-9\\.,]+)\s*<', html)
-            if not now_m:
+            soup = BeautifulSoup(html, "html.parser")
+            now_el = soup.select_one("em#now_value")
+            fluc_el = soup.select_one("#change_value_and_rate")
+            quo_el = soup.select_one("div#quotient")
+
+            if not now_el:
                 return None
-            now = _to_float(now_m.group(1))
-            # change + pct are inside: <span class="fluc" id="change_value_and_rate"><span>8.70</span> +0.21% ...
-            block_m = re.search(r'id\s*=\s*["\\\']change_value_and_rate["\\\'][^>]*>([\\s\\S]*?)</span>\\s*</div>', html)
-            block = block_m.group(1) if block_m else ""
-            # first <span>..</span> is absolute change
-            ch_m = re.search(r"<span>\\s*([+\\-]?[0-9\\.,]+)\\s*</span>", block)
-            ch = _to_float(ch_m.group(1)) if ch_m else 0.0
-            pct_m = re.search(r"([+\\-]?[0-9\\.,]+)\\s*%", block)
-            pct = _to_float(pct_m.group(1)) if pct_m else 0.0
+            now = _to_float(now_el.get_text(strip=True))
+
+            fluc_txt = fluc_el.get_text(" ", strip=True) if fluc_el else ""
+            # Example:
+            #  - "13.76 +0.34% 전일대비"
+            #  - "9.19 -0.99% 전일대비"
+            nums = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", fluc_txt.replace("%", ""))
+            ch = float(nums[0].replace(",", "").replace("+", "")) if len(nums) >= 1 else 0.0
+            pct = float(nums[1].replace(",", "").replace("+", "")) if len(nums) >= 2 else 0.0
+
+            # Determine sign via quotient class if available (KOSDAQ uses 'dn')
+            cls = quo_el.get("class", []) if quo_el else []
+            if "dn" in cls or "down" in cls:
+                ch = -abs(ch)
+                pct = -abs(pct)
+            elif "up" in cls:
+                ch = abs(ch)
+                pct = abs(pct)
+            # else: keep sign from parsed string
+
             return IndexQuote(code, now, ch, pct)
         except Exception:
             return None
