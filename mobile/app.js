@@ -349,8 +349,10 @@ function renderStockDetail(detail) {
           .replace(/'/g, '&#039;');
         return `
           <div class="newsItem">
-            <a href="${url}" target="_blank" rel="noreferrer" class="newsLink">${titleEscaped}</a>
-            ${date ? `<span class="newsDate">${date}</span>` : ""}
+            <a href="${url}" target="_blank" rel="noreferrer" class="newsLink">
+              <div class="newsTitle">${titleEscaped}</div>
+              ${date ? `<div class="newsDate">${date}</div>` : ""}
+            </a>
           </div>
         `;
       }).join("");
@@ -424,8 +426,9 @@ function renderStockDetail(detail) {
                 const formatted = fmtNum(Math.abs(n));
                 return n > 0 ? `+${formatted}` : `-${formatted}`;
               };
-              const instClass = institution >= 0 ? "up" : "down";
-              const forClass = foreigner >= 0 ? "up" : "down";
+              // Apply color classes: positive = red (up), negative = blue (down)
+              const instClass = institution > 0 ? "up" : institution < 0 ? "down" : "";
+              const forClass = foreigner > 0 ? "up" : foreigner < 0 ? "down" : "";
               return `
                 <tr>
                   <td>${date}</td>
