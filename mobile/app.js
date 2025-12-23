@@ -85,6 +85,7 @@ let ws = null;
 let retryTimer = null;
 let retries = 0;
 let pollTimer = null;
+let currentStocks = []; // Store current stocks array for modal access
 
 function stop() {
   if (retryTimer) {
@@ -184,17 +185,22 @@ function openModal(stock) {
     els.mSignals.appendChild(div);
   }
 
-  els.mAi.textContent = stock.ai_opinion || "추후 기존 EXE 로직과 동일하게 연결됩니다.";
+  // Ensure ai_opinion is properly displayed
+  const aiText = stock?.ai_opinion || "";
+  els.mAi.textContent = aiText || "추후 기존 EXE 로직과 동일하게 연결됩니다.";
   if (typeof els.modal.showModal === "function") els.modal.showModal();
 }
 
 function renderStocks(stocks) {
   if (!Array.isArray(stocks) || stocks.length === 0) {
     els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">데이터가 없습니다.</td></tr>`;
+    currentStocks = [];
     return;
   }
+  // Store stocks array for modal access
+  currentStocks = stocks.slice(0, 20);
   els.stocksTbody.innerHTML = "";
-  stocks.slice(0, 20).forEach((s) => {
+  currentStocks.forEach((s, idx) => {
     const tr = document.createElement("tr");
     tr.className = "clickable";
     const pct = Number(s.change_pct || 0);
@@ -206,7 +212,7 @@ function renderStocks(stocks) {
       <td class="right">${fmtNum(s.trade_value)}</td>
       <td class="right">${fmtNum(s.score)}</td>
     `;
-    tr.addEventListener("click", () => openModal(s));
+    tr.addEventListener("click", () => openModal(currentStocks[idx]));
     els.stocksTbody.appendChild(tr);
   });
 }
