@@ -98,12 +98,20 @@ async def snapshot(request: Request) -> JSONResponse:
     with CACHE_LOCK:
         if GLOBAL_CACHE["snapshot"] is None:
             return JSONResponse({
+                "ok": False,
                 "status": "warming_up",
                 "message": "데이터 준비 중 (최초 1회)",
                 "ts": int(time.time()),
                 "owner": OWNER_NAME,
+                "data": None,
             })
-        return JSONResponse(GLOBAL_CACHE["snapshot"])
+        # Wrap snapshot in expected format
+        return JSONResponse({
+            "ok": True,
+            "data": GLOBAL_CACHE["snapshot"],
+            "ts": int(time.time()),
+            "owner": OWNER_NAME,
+        })
 
 
 @app.post("/refresh")
