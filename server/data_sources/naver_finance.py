@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -177,6 +178,75 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
     return out
 
 
+def detect_themes(stocks: List[RisingStock]) -> List[dict]:
+    """
+    Detect leading themes from stock names and group by common keywords.
+    This is a heuristic approach - will be refined based on original EXE logic.
+    """
+    from collections import Counter
+    
+    # Common theme keywords in Korean stock market
+    theme_keywords = {
+        "반도체": ["반도체", "칩", "웨이퍼", "실리콘"],
+        "배터리": ["배터리", "전지", "리튬", "에너지"],
+        "바이오": ["바이오", "제약", "의료", "바이오텍", "제약바이오"],
+        "AI": ["AI", "인공지능", "머신러닝", "딥러닝"],
+        "전기차": ["전기차", "전기", "EV", "전동차"],
+        "2차전지": ["2차전지", "이차전지", "배터리"],
+        "게임": ["게임", "엔터테인먼트"],
+        "증권": ["증권", "투자", "금융"],
+        "건설": ["건설", "시공", "토목"],
+        "화학": ["화학", "석유화학"],
+        "철강": ["철강", "제철"],
+        "IT": ["IT", "소프트웨어", "시스템"],
+    }
+    
+    # Count theme occurrences in top stocks
+    theme_counts: Counter[str] = Counter()
+    theme_stocks: dict[str, List[RisingStock]] = {}
+    
+    for stock in stocks:
+        name = stock.name
+        matched_themes = []
+        
+        for theme, keywords in theme_keywords.items():
+            if any(kw in name for kw in keywords):
+                matched_themes.append(theme)
+                if theme not in theme_stocks:
+                    theme_stocks[theme] = []
+                theme_stocks[theme].append(stock)
+        
+        # If no theme matched, check for common suffixes
+        if not matched_themes:
+            if name.endswith("증권") or name.endswith("증권우"):
+                theme_counts["증권"] += 1
+                if "증권" not in theme_stocks:
+                    theme_stocks["증권"] = []
+                theme_stocks["증권"].append(stock)
+    
+    # Calculate theme scores (weighted by stock performance)
+    theme_scores: list[tuple[str, float, int]] = []
+    for theme, theme_stock_list in theme_stocks.items():
+        if len(theme_stock_list) >= 2:  # At least 2 stocks to form a theme
+            avg_change = sum(s.change_pct for s in theme_stock_list) / len(theme_stock_list)
+            total_trade_value = sum(s.trade_value for s in theme_stock_list)
+            # Score = (number of stocks) * (avg change %) * (log of total trade value)
+            score = len(theme_stock_list) * avg_change * (1 + (total_trade_value / 1000000) ** 0.3)
+            theme_scores.append((theme, score, len(theme_stock_list)))
+    
+    # Sort by score and return top 5
+    theme_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    return [
+        {
+            "name": theme,
+            "count": count,
+            "score": round(score, 2),
+        }
+        for theme, score, count in theme_scores[:5]
+    ]
+
+
 async def build_snapshot() -> dict:
     async with httpx.AsyncClient(headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"}) as client:
         indices = await fetch_index_quotes(client)
@@ -185,6 +255,10 @@ async def build_snapshot() -> dict:
         merged = kospi_rise + kosdaq_rise
         merged.sort(key=lambda x: x.change_pct, reverse=True)
         top20 = merged[:20]
+        
+        # Detect themes from all rising stocks (not just top20)
+        all_rising = kospi_rise + kosdaq_rise
+        themes = detect_themes(all_rising)
 
     def signals_for(s: RisingStock) -> list[dict]:
         sigs: list[dict] = []
@@ -224,7 +298,7 @@ async def build_snapshot() -> dict:
         "indices": [
             {"name": q.name, "value": q.value, "change": q.change, "change_pct": q.change_pct} for q in indices
         ],
-        "themes": [],  # TODO: fill later (original exe logic)
+        "themes": themes,
         "stocks": [
             {
                 "code": s.code,
