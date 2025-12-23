@@ -106,7 +106,8 @@ async def refresh(request: Request) -> JSONResponse:
 # --------------------------------------------------
 @app.get("/stock/{code}")
 async def stock_detail(code: str, request: Request) -> JSONResponse:
-    if not code.isdigit() or len(code) != 6:
+    # 한국 주식 코드는 일반주 6자리, 우선주 5자리 또는 6자리
+    if not code.isdigit() or len(code) < 5 or len(code) > 6:
         return JSONResponse({"ok": False, "error": "invalid stock code"}, status_code=400)
 
     token = (request.headers.get("X-App-Token") or "").strip()

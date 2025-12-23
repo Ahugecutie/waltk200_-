@@ -818,7 +818,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 if len(news) > 0:
                     break  # Found news, stop trying other selectors
         
-        # If no news found, try fetching from news page
+        # If no news found, try fetching from news page (with timeout to avoid blocking)
         if not news:
             try:
                 news_html = await _get(client, f"https://finance.naver.com/item/news.naver?code={code}")
@@ -841,15 +841,47 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         })
             except Exception as e:
                 print(f"Warning: Failed to fetch news page for {code}: {e}")
+                # Continue without news - don't block the response
         
         # Financial summary (재무 요약) - parse from financial table
+        # Try main page first (already loaded) for speed
         financials = []
-        # Try multiple pages for financial data
-        financial_pages = [
-            f"https://finance.naver.com/item/frgn.naver?code={code}",
-            f"https://finance.naver.com/item/main.naver?code={code}",
-        ]
-        for fin_url in financial_pages:
+        # First try main page (already loaded)
+        fin_tables = soup.select("table.type_2, table.tb_type1")
+        for table in fin_tables:
+            headers = table.select("th")
+            has_sales = any("매출액" in h.get_text() for h in headers)
+            has_profit = any("영업이익" in h.get_text() for h in headers)
+            
+            if has_sales or has_profit:
+                rows = table.select("tr")
+                for row in rows[1:]:  # Skip header
+                    tds = row.select("td")
+                    if len(tds) >= 3:
+                        period = tds[0].get_text(strip=True)
+                        sales_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
+                        profit_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
+                        
+                        sales = _to_float(sales_text)
+                        profit = _to_float(profit_text)
+                        
+                        if period and (sales > 0 or profit != 0):
+                            financials.append({
+                                "period": period,
+                                "sales": sales,
+                                "operating_profit": profit,
+                            })
+                            if len(financials) >= 3:  # Recent 3 periods
+                                break
+                if len(financials) > 0:
+                    break
+        
+        # Only try other pages if not found in main page (to speed up)
+        if not financials:
+            financial_pages = [
+                f"https://finance.naver.com/item/frgn.naver?code={code}",
+            ]
+            for fin_url in financial_pages:
             try:
                 fin_html = await _get(client, fin_url)
                 fin_soup = BeautifulSoup(fin_html, "html.parser")
@@ -895,43 +927,44 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 print(f"Warning: Failed to fetch financial page {fin_url} for {code}: {e}")
                 continue
         
-        # Fallback: try to find in main page
-        if not financials:
-            fin_tables = soup.select("table.type_2, table.tb_type1")
-            for table in fin_tables:
-                headers = table.select("th")
-                has_sales = any("매출액" in h.get_text() for h in headers)
-                has_profit = any("영업이익" in h.get_text() for h in headers)
-                
-                if has_sales or has_profit:
-                    rows = table.select("tr")
-                    for row in rows[1:]:  # Skip header
-                        tds = row.select("td")
-                        if len(tds) >= 3:
-                            period = tds[0].get_text(strip=True)
-                            sales_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
-                            profit_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
-                            
-                            sales = _to_float(sales_text)
-                            profit = _to_float(profit_text)
-                            
-                            if period and (sales > 0 or profit != 0):
-                                financials.append({
-                                    "period": period,
-                                    "sales": sales,
-                                    "operating_profit": profit,
-                                })
-                                if len(financials) >= 3:  # Recent 3 periods
-                                    break
-        
         # Investor trends (투자자별 매매동향) - parse from investor table
+        # Try main page first (already loaded) for speed
         investor_trends = []
-        # Try multiple pages for investor data
-        investor_pages = [
-            f"https://finance.naver.com/item/frgn.naver?code={code}",
-            f"https://finance.naver.com/item/sise_day.naver?code={code}",
-        ]
-        for inv_url in investor_pages:
+        inv_tables = soup.select("table.type_2, table.tb_type1")
+        for table in inv_tables:
+            headers = table.select("th")
+            has_institution = any("기관" in h.get_text() for h in headers)
+            has_foreigner = any("외국인" in h.get_text() for h in headers)
+            
+            if has_institution and has_foreigner:
+                rows = table.select("tr")
+                for row in rows[1:]:  # Skip header
+                    tds = row.select("td")
+                    if len(tds) >= 3:
+                        date = tds[0].get_text(strip=True)
+                        inst_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
+                        for_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
+                        
+                        institution = _to_int(inst_text)
+                        foreigner = _to_int(for_text)
+                        
+                        if date:
+                            investor_trends.append({
+                                "date": date,
+                                "institution": institution,
+                                "foreigner": foreigner,
+                            })
+                            if len(investor_trends) >= 5:  # Recent 5 days
+                                break
+                if len(investor_trends) > 0:
+                    break
+        
+        # Only try other pages if not found in main page (to speed up)
+        if not investor_trends:
+            investor_pages = [
+                f"https://finance.naver.com/item/frgn.naver?code={code}",
+            ]
+            for inv_url in investor_pages:
             try:
                 inv_html = await _get(client, inv_url)
                 inv_soup = BeautifulSoup(inv_html, "html.parser")
@@ -975,35 +1008,6 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             except Exception as e:
                 print(f"Warning: Failed to fetch investor page {inv_url} for {code}: {e}")
                 continue
-        
-        # Fallback: try to find in main page
-        if not investor_trends:
-            inv_tables = soup.select("table.type_2, table.tb_type1")
-            for table in inv_tables:
-                headers = table.select("th")
-                has_institution = any("기관" in h.get_text() for h in headers)
-                has_foreigner = any("외국인" in h.get_text() for h in headers)
-                
-                if has_institution and has_foreigner:
-                    rows = table.select("tr")
-                    for row in rows[1:]:  # Skip header
-                        tds = row.select("td")
-                        if len(tds) >= 3:
-                            date = tds[0].get_text(strip=True)
-                            inst_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
-                            for_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
-                            
-                            institution = _to_int(inst_text)
-                            foreigner = _to_int(for_text)
-                            
-                            if date:
-                                investor_trends.append({
-                                    "date": date,
-                                    "institution": institution,
-                                    "foreigner": foreigner,
-                                })
-                                if len(investor_trends) >= 5:  # Recent 5 days
-                                    break
         
         return StockDetail(
             code=code,

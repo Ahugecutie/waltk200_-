@@ -211,20 +211,36 @@ body{
 .mini__box{border:1px solid var(--border); border-radius:12px; padding:12px; background:rgba(0,0,0,.14); font-size:13px; line-height:1.5}
 
 .section{margin-top:16px}
-.pivotRow{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px}
+.pivotRow{display:flex; gap:6px; margin-top:8px; justify-content:space-between}
 .pivotItem{
-  flex:1 1 auto;
-  min-width:100px;
-  padding:8px 10px;
+  flex:1;
+  min-width:0;
+  padding:10px 6px;
   border-radius:8px;
   border:1px solid var(--border);
   background:rgba(0,0,0,.14);
-  font-size:12px;
   text-align:center;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
 }
-.pivotItem--pivot{background:rgba(167,193,255,.12); border-color:rgba(167,193,255,.35); font-weight:700}
-.pivotItem--resistance{color:#FF5A5F}
-.pivotItem--support{color:#4DA3FF}
+.pivotItem__label{
+  font-size:11px;
+  opacity:0.8;
+  line-height:1.2;
+}
+.pivotItem__value{
+  font-size:13px;
+  font-weight:600;
+  line-height:1.2;
+}
+.pivotItem--pivot{
+  background:rgba(167,193,255,.12);
+  border-color:rgba(167,193,255,.35);
+}
+.pivotItem--pivot .pivotItem__value{font-weight:700}
+.pivotItem--resistance .pivotItem__value{color:#FF5A5F}
+.pivotItem--support .pivotItem__value{color:#4DA3FF}
 
 .newsList{display:flex; flex-direction:column; gap:8px; margin-top:8px}
 .newsItem{

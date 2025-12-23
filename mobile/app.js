@@ -287,11 +287,26 @@ function renderStockDetail(detail) {
   if (detail.pivot && detail.pivot !== null && detail.pivot.pivot !== null && detail.pivot.pivot !== undefined) {
     if (els.mPivot && els.mPivotSection) {
       els.mPivot.innerHTML = `
-        <div class="pivotItem pivotItem--resistance">2차 저항: ${fmtNum(detail.pivot.r2 || 0)}</div>
-        <div class="pivotItem pivotItem--resistance">1차 저항: ${fmtNum(detail.pivot.r1 || 0)}</div>
-        <div class="pivotItem pivotItem--pivot">Pivot: ${fmtNum(detail.pivot.pivot || 0)}</div>
-        <div class="pivotItem pivotItem--support">1차 지지: ${fmtNum(detail.pivot.s1 || 0)}</div>
-        <div class="pivotItem pivotItem--support">2차 지지: ${fmtNum(detail.pivot.s2 || 0)}</div>
+        <div class="pivotItem pivotItem--resistance">
+          <div class="pivotItem__label">2차 저항</div>
+          <div class="pivotItem__value">${fmtNum(detail.pivot.r2 || 0)}원</div>
+        </div>
+        <div class="pivotItem pivotItem--resistance">
+          <div class="pivotItem__label">1차 저항</div>
+          <div class="pivotItem__value">${fmtNum(detail.pivot.r1 || 0)}원</div>
+        </div>
+        <div class="pivotItem pivotItem--pivot">
+          <div class="pivotItem__label">Pivot</div>
+          <div class="pivotItem__value">${fmtNum(detail.pivot.pivot || 0)}원</div>
+        </div>
+        <div class="pivotItem pivotItem--support">
+          <div class="pivotItem__label">1차 지지</div>
+          <div class="pivotItem__value">${fmtNum(detail.pivot.s1 || 0)}원</div>
+        </div>
+        <div class="pivotItem pivotItem--support">
+          <div class="pivotItem__label">2차 지지</div>
+          <div class="pivotItem__value">${fmtNum(detail.pivot.s2 || 0)}원</div>
+        </div>
       `;
       els.mPivotSection.style.display = "block";
     }
