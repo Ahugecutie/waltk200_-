@@ -2,44 +2,59 @@
 
 const OWNER_NAME = "김성훈";
 
-const els = {
-  statusBadge: document.getElementById("statusBadge"),
-  statusText: document.getElementById("statusText"),
-  lastPayload: document.getElementById("lastPayload"),
-  serverUrl: document.getElementById("serverUrl"),
-  token: document.getElementById("token"),
-  saveBtn: document.getElementById("saveBtn"),
-  refreshBtn: document.getElementById("refreshBtn"),
-  refreshBtn2: document.getElementById("refreshBtn2"),
-  clearBtn: document.getElementById("clearBtn"),
-  kospiValue: document.getElementById("kospiValue"),
-  kospiSub: document.getElementById("kospiSub"),
-  kosdaqValue: document.getElementById("kosdaqValue"),
-  kosdaqSub: document.getElementById("kosdaqSub"),
-  themesEmpty: document.getElementById("themesEmpty"),
-  themesList: document.getElementById("themesList"),
-  stocksTbody: document.getElementById("stocksTbody"),
-  modal: document.getElementById("modal"),
-  mTitle: document.getElementById("mTitle"),
-  mSub: document.getElementById("mSub"),
-  mPills: document.getElementById("mPills"),
-  mSignals: document.getElementById("mSignals"),
-  mLink: document.getElementById("mLink"),
-  mAi: document.getElementById("mAi"),
-  mClose: document.getElementById("mClose"),
-};
+// Initialize els after DOM is ready
+let els = {};
+
+function initElements() {
+  els = {
+    statusBadge: document.getElementById("statusBadge"),
+    statusText: document.getElementById("statusText"),
+    lastPayload: document.getElementById("lastPayload"),
+    serverUrl: document.getElementById("serverUrl"),
+    token: document.getElementById("token"),
+    saveBtn: document.getElementById("saveBtn"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    refreshBtn2: document.getElementById("refreshBtn2"),
+    clearBtn: document.getElementById("clearBtn"),
+    kospiValue: document.getElementById("kospiValue"),
+    kospiSub: document.getElementById("kospiSub"),
+    kosdaqValue: document.getElementById("kosdaqValue"),
+    kosdaqSub: document.getElementById("kosdaqSub"),
+    themesEmpty: document.getElementById("themesEmpty"),
+    themesList: document.getElementById("themesList"),
+    stocksTbody: document.getElementById("stocksTbody"),
+    modal: document.getElementById("modal"),
+    mTitle: document.getElementById("mTitle"),
+    mSub: document.getElementById("mSub"),
+    mPills: document.getElementById("mPills"),
+    mSignals: document.getElementById("mSignals"),
+    mLink: document.getElementById("mLink"),
+    mAi: document.getElementById("mAi"),
+    mClose: document.getElementById("mClose"),
+  };
+  
+  // Verify critical elements exist
+  if (!els.statusBadge || !els.statusText || !els.stocksTbody) {
+    console.error("Critical DOM elements not found!");
+    return false;
+  }
+  return true;
+}
 
 function setBadge(kind, text) {
+  if (!els.statusBadge) return;
   els.statusBadge.classList.remove("badge--ok", "badge--warn", "badge--bad");
   els.statusBadge.classList.add(kind);
   els.statusBadge.textContent = text;
 }
 
 function setStatus(text) {
+  if (!els.statusText) return;
   els.statusText.textContent = text;
 }
 
 function loadSettings() {
+  if (!els.serverUrl || !els.token) return;
   const savedUrl = localStorage.getItem("ls_server_url") || "";
   const savedToken = localStorage.getItem("ls_token") || "";
   els.serverUrl.value = savedUrl;
@@ -47,6 +62,7 @@ function loadSettings() {
 }
 
 function saveSettings() {
+  if (!els.serverUrl || !els.token) return;
   localStorage.setItem("ls_server_url", (els.serverUrl.value || "").trim());
   localStorage.setItem("ls_token", (els.token.value || "").trim());
 }
@@ -361,36 +377,65 @@ function connect() {
   };
 }
 
-els.saveBtn.addEventListener("click", () => {
-  saveSettings();
+function setupEventListeners() {
+  if (els.saveBtn) {
+    els.saveBtn.addEventListener("click", () => {
+      saveSettings();
+      connect();
+    });
+  }
+  
+  if (els.refreshBtn) {
+    els.refreshBtn.addEventListener("click", () => {
+      triggerRefresh();
+    });
+  }
+  
+  if (els.refreshBtn2) {
+    els.refreshBtn2.addEventListener("click", () => {
+      triggerRefresh();
+    });
+  }
+  
+  if (els.mClose) {
+    els.mClose.addEventListener("click", () => {
+      try { els.modal.close(); } catch {}
+    });
+  }
+  
+  if (els.clearBtn) {
+    els.clearBtn.addEventListener("click", () => {
+      clearSettings();
+      connect();
+    });
+  }
+  
+  window.addEventListener("online", () => connect());
+  window.addEventListener("offline", () => {
+    setBadge("badge--bad", "오프라인");
+    setStatus("인터넷 연결이 없습니다.");
+  });
+}
+
+// Initialize when DOM is ready
+function init() {
+  if (!initElements()) {
+    console.error("Failed to initialize elements");
+    return;
+  }
+  
+  setupEventListeners();
+  loadSettings();
   connect();
-});
+}
 
-els.refreshBtn.addEventListener("click", () => {
-  triggerRefresh();
-});
-
-els.refreshBtn2?.addEventListener("click", () => {
-  triggerRefresh();
-});
-
-els.mClose?.addEventListener("click", () => {
-  try { els.modal.close(); } catch {}
-});
-
-els.clearBtn.addEventListener("click", () => {
-  clearSettings();
-  connect();
-});
-
-window.addEventListener("online", () => connect());
-window.addEventListener("offline", () => {
-  setBadge("badge--bad", "오프라인");
-  setStatus("인터넷 연결이 없습니다.");
-});
-
-loadSettings();
-connect();
+// Run initialization
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  // DOM already loaded
+  init();
+}
 
 // Ask SW to activate new versions immediately (helps PWA update).
 if (navigator.serviceWorker && navigator.serviceWorker.controller) {
