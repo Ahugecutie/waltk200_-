@@ -16,6 +16,9 @@ function initElements() {
     refreshBtn: document.getElementById("refreshBtn"),
     refreshBtn2: document.getElementById("refreshBtn2"),
     clearBtn: document.getElementById("clearBtn"),
+    serverConfigCard: document.getElementById("serverConfigCard"),
+    serverConfigToggle: document.getElementById("serverConfigToggle"),
+    serverConfigContent: document.getElementById("serverConfigContent"),
     kospiValue: document.getElementById("kospiValue"),
     kospiSub: document.getElementById("kospiSub"),
     kosdaqValue: document.getElementById("kosdaqValue"),
@@ -528,6 +531,27 @@ function setupEventListeners() {
       clearSettings();
       connect();
     });
+  }
+  
+  // Server config toggle
+  if (els.serverConfigToggle && els.serverConfigContent) {
+    els.serverConfigToggle.addEventListener("click", () => {
+      const isCollapsed = els.serverConfigCard.classList.contains("collapsed");
+      if (isCollapsed) {
+        els.serverConfigCard.classList.remove("collapsed");
+        els.serverConfigContent.style.display = "block";
+      } else {
+        els.serverConfigCard.classList.add("collapsed");
+        els.serverConfigContent.style.display = "none";
+      }
+    });
+    
+    // Initially collapse if server URL is already set
+    const savedUrl = localStorage.getItem("ls_server_url") || "";
+    if (savedUrl.trim()) {
+      els.serverConfigCard.classList.add("collapsed");
+      els.serverConfigContent.style.display = "none";
+    }
   }
   
   window.addEventListener("online", () => connect());

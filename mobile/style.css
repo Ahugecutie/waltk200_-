@@ -54,6 +54,29 @@ body{
   backdrop-filter: blur(10px);
 }
 
+.card--collapsible .card-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  cursor:pointer;
+  user-select:none;
+  padding:4px 0;
+}
+.card--collapsible .card-header:hover{
+  opacity:0.85;
+}
+.toggle-icon{
+  font-size:12px;
+  color:var(--muted);
+  transition:transform 0.2s;
+}
+.card--collapsible.collapsed .toggle-icon{
+  transform:rotate(-90deg);
+}
+.card-content{
+  margin-top:12px;
+}
+
 .title{margin:0 0 6px; font-size:18px; letter-spacing:-0.3px}
 .subtitle{margin:0 0 8px; font-size:14px; color:var(--muted)}
 .status{margin:0 0 12px; color:var(--muted); line-height:1.5}

@@ -370,70 +370,185 @@ async def build_snapshot() -> dict:
 
     def ai_opinion_for(s: RisingStock, detail: Optional[StockDetail] = None) -> str:
         """
-        Generate AI investment opinion based on stock characteristics.
-        Enhanced with news analysis and technical indicators when detail is available.
+        Generate comprehensive AI investment opinion based on multiple factors.
+        Enhanced with detailed news analysis, technical indicators, financials, and investor trends.
         """
         parts = []
         
-        # Investor trend analysis (if available)
+        # === 1. Market Context & Overall Assessment ===
+        market_context = []
+        if s.change_pct >= 29.8:
+            market_context.append("**상한가 구간**")
+        elif s.change_pct >= 20:
+            market_context.append("**급등 구간**")
+        elif s.change_pct >= 12:
+            market_context.append("**강세 흐름**")
+        elif s.change_pct >= 5:
+            market_context.append("**중간 강세**")
+        else:
+            market_context.append("**보합세**")
+        
+        if s.trade_value >= 500000:  # 50억 이상
+            market_context.append("거래대금이 **폭발적으로 증가**")
+        elif s.trade_value >= 200000:  # 20억 이상
+            market_context.append("거래대금이 **크게 증가**")
+        elif s.trade_value >= 100000:  # 10억 이상
+            market_context.append("거래대금이 **활발**")
+        
+        if s.volume >= 50000000:  # 5천만주 이상
+            market_context.append("거래량이 **폭증**")
+        elif s.volume >= 20000000:  # 2천만주 이상
+            market_context.append("거래량이 **대폭 증가**")
+        elif s.volume >= 10000000:  # 1천만주 이상
+            market_context.append("거래량이 **활발**")
+        
+        if market_context:
+            parts.append(f"현재 {', '.join(market_context)}한 상태입니다.")
+        
+        # === 2. Investor Trend Analysis (Detailed) ===
         if detail and detail.investor_trends and len(detail.investor_trends) > 0:
             latest = detail.investor_trends[0]
-            # Handle both dict and object access
             if isinstance(latest, dict):
                 foreigner_val = latest.get("foreigner", 0)
+                institution_val = latest.get("institution", 0)
             else:
                 foreigner_val = getattr(latest, "foreigner", 0) if hasattr(latest, "foreigner") else 0
-            if foreigner_val > 100000:  # 외국인 순매수 1억 이상
-                parts.append("**외국인이 매수세를 주도**하고 있으며 주가 상승을 이끌고 있습니다.")
-            elif foreigner_val < -100000:  # 외국인 순매도
-                parts.append("외국인 매도세가 지속되고 있어 주의가 필요합니다.")
+                institution_val = getattr(latest, "institution", 0) if hasattr(latest, "institution") else 0
+            
+            investor_analysis = []
+            if foreigner_val > 200000:  # 외국인 순매수 2억 이상
+                investor_analysis.append("**외국인이 강력한 매수세**를 보이고 있어")
+            elif foreigner_val > 100000:  # 외국인 순매수 1억 이상
+                investor_analysis.append("**외국인이 매수세를 주도**하고 있어")
+            elif foreigner_val < -200000:  # 외국인 순매도 2억 이상
+                investor_analysis.append("**외국인 매도세가 강하게 지속**되어")
+            elif foreigner_val < -100000:  # 외국인 순매도 1억 이상
+                investor_analysis.append("외국인 매도세가 지속되어")
+            
+            if institution_val > 200000:  # 기관 순매수 2억 이상
+                investor_analysis.append("**기관도 대규모 매수**에 나서")
+            elif institution_val > 100000:  # 기관 순매수 1억 이상
+                investor_analysis.append("기관도 매수세를 보이며")
+            elif institution_val < -200000:  # 기관 순매도 2억 이상
+                investor_analysis.append("**기관이 대규모 매도**에 나서")
+            elif institution_val < -100000:  # 기관 순매도 1억 이상
+                investor_analysis.append("기관 매도세가 지속되어")
+            
+            if investor_analysis:
+                parts.append(" ".join(investor_analysis) + " 주가 움직임에 영향을 미치고 있습니다.")
         
-        # News trigger analysis
+        # === 3. News Analysis (Enhanced) ===
         if detail and detail.news and len(detail.news) > 0:
-            # Check for popular search keywords
             news_list = detail.news if isinstance(detail.news, list) else []
-            news_titles = " ".join([(n.get("title", "") if isinstance(n, dict) else str(n)) for n in news_list[:3]])
+            news_titles = " ".join([(n.get("title", "") if isinstance(n, dict) else str(n)) for n in news_list[:5]])
+            news_text = news_titles.lower()
+            
+            # 긍정적 키워드
+            positive_keywords = ["인기 검색", "검색 종목", "급등", "상한가", "구조대", "왔다", "상승", "호재", 
+                               "실적", "수주", "계약", "승인", "인허가", "신약", "개발", "성공", "돌파"]
+            # 부정적 키워드
+            negative_keywords = ["하락", "급락", "부진", "실적", "적자", "손실", "경고", "주의", "리콜", "조사"]
+            
+            positive_count = sum(1 for kw in positive_keywords if kw in news_text)
+            negative_count = sum(1 for kw in negative_keywords if kw in news_text)
+            
             if "인기 검색" in news_titles or "검색 종목" in news_titles:
-                parts.append("주가 상승의 주요 트리거는 **'직후 인기 검색 종목 20選'** 관련 이슈로 판단됩니다.")
-            elif any(kw in news_titles for kw in ["왔다", "구조대", "급등", "상한가"]):
-                parts.append("최근 뉴스 이슈가 주가에 긍정적 영향을 미치고 있습니다.")
+                parts.append("주가 상승의 주요 트리거는 **'인기 검색 종목'** 관련 이슈로 판단되며, 단기 모멘텀이 강합니다.")
+            elif positive_count >= 2:
+                parts.append("최근 뉴스에서 **긍정적 이슈가 다수 확인**되어 주가에 호재로 작용하고 있습니다.")
+            elif negative_count >= 2:
+                parts.append("최근 뉴스에서 **부정적 이슈가 확인**되어 주의가 필요합니다.")
+            elif positive_count > 0:
+                parts.append("최근 뉴스 이슈가 주가에 **긍정적 영향을 미치고 있습니다**.")
+            elif len(news_list) > 0:
+                parts.append("뉴스 이슈를 지속적으로 모니터링하시기 바랍니다.")
         
-        # Technical analysis (if pivot data available)
+        # === 4. Technical Analysis (Comprehensive) ===
         if detail and detail.pivot and detail.price:
             current = detail.price
-            if detail.r2 and current >= detail.r2 * 0.98:  # 2차 저항선 근처
-                parts.append("기술적으로 **2차 저항선(R2)까지 돌파**한 강한 상승 구간이지만,")
+            pivot = detail.pivot
+            
+            # Pivot position analysis
+            if detail.r2 and current >= detail.r2 * 0.98:
+                parts.append("기술적으로 **2차 저항선(R2)을 돌파**한 매우 강한 상승 구간입니다.")
                 if s.change_pct >= 20:
-                    parts.append("단기 과열 구간에 진입했으므로 추격매수는 신중해야 합니다.")
+                    parts.append("단기 과열 구간에 진입했으므로 **추격매수는 위험**하며, 보유자는 분할 청산을 고려하세요.")
                 else:
-                    parts.append("추가 상승 여력이 있을 수 있으나 변동성에 주의하세요.")
-            elif detail.r1 and current >= detail.r1 * 0.98:  # 1차 저항선 근처
-                parts.append("1차 저항선(R1) 근처에서 저항을 받을 수 있습니다.")
-            elif detail.s1 and current <= detail.s1 * 1.02:  # 1차 지지선 근처
-                parts.append("1차 지지선(S1) 근처에서 지지를 받고 있습니다.")
+                    parts.append("추가 상승 여력이 있을 수 있으나, **변동성과 조정 가능성**에 주의하세요.")
+            elif detail.r1 and current >= detail.r1 * 0.98:
+                parts.append("**1차 저항선(R1) 근처**에서 저항을 받을 수 있으며, 돌파 여부가 관건입니다.")
+                if s.trade_value >= 200000:
+                    parts.append("거래대금이 충분하여 돌파 가능성이 있으나, 실패 시 조정 가능성도 있습니다.")
+            elif current >= pivot * 0.98:
+                parts.append("**Pivot Point 근처**에서 움직이고 있으며, 방향성 확립이 필요합니다.")
+            elif detail.s1 and current <= detail.s1 * 1.02:
+                parts.append("**1차 지지선(S1) 근처**에서 지지를 받고 있어 하락 방어력이 있습니다.")
+                if s.change_pct > 0:
+                    parts.append("지지선에서 반등할 경우 추가 상승 여력이 있을 수 있습니다.")
+            elif detail.s2 and current <= detail.s2 * 1.02:
+                parts.append("**2차 지지선(S2) 근처**에 위치하여 강한 지지대 역할을 하고 있습니다.")
         
-        # Price action analysis
+        # === 5. Financial Analysis ===
+        if detail and detail.financials and len(detail.financials) > 0:
+            financial_list = detail.financials if isinstance(detail.financials, list) else []
+            if len(financial_list) > 0:
+                latest_fin = financial_list[0]
+                if isinstance(latest_fin, dict):
+                    sales = latest_fin.get("sales", 0)
+                    operating_profit = latest_fin.get("operating_profit", 0)
+                else:
+                    sales = getattr(latest_fin, "sales", 0) if hasattr(latest_fin, "sales") else 0
+                    operating_profit = getattr(latest_fin, "operating_profit", 0) if hasattr(latest_fin, "operating_profit") else 0
+                
+                if operating_profit > 0 and sales > 0:
+                    margin = (operating_profit / sales) * 100
+                    if margin >= 20:
+                        parts.append("**재무 건전성이 우수**하며 영업이익률이 높아 안정적인 기업입니다.")
+                    elif margin >= 10:
+                        parts.append("재무 상태가 양호하며 수익성이 안정적입니다.")
+                    elif margin < 0:
+                        parts.append("**재무 상태에 주의**가 필요하며, 실적 개선 여부를 지속 모니터링하세요.")
+        
+        # === 6. Risk Assessment & Trading Strategy ===
+        risk_parts = []
+        
         if s.change_pct >= 29.8:
+            risk_parts.append("**상한가 구간**이므로 추격매수는 매우 위험합니다.")
             if s.trade_value >= 200000:
-                parts.append("상한가 구간이며 거래대금이 폭발적으로 증가했으나, 추격매수는 위험합니다. 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요.")
-            else:
-                parts.append("상한가 구간입니다. 추격매수는 위험하며, 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요.")
+                risk_parts.append("거래대금이 폭발적으로 증가했으나, 이는 과열 신호일 수 있습니다.")
+            risk_parts.append("보유자는 **변동성에 대비해 분할 청산/손절 기준을 명확히** 하시기 바랍니다.")
         elif s.change_pct >= 20:
+            risk_parts.append("**급등 구간**이므로 추가 수급 유입을 확인하면서 **손절 라인을 먼저 정하는 것**이 중요합니다.")
             if s.trade_value >= 200000:
-                parts.append("급등 구간이며 거래대금이 크게 증가했습니다. 추가 수급 유입을 확인하면서 손절 라인을 먼저 정하는 것이 좋습니다.")
-            else:
-                parts.append("급등 구간입니다. 거래대금과 추가 수급 유입을 확인하면서, 손절 라인을 먼저 정하는 것이 좋습니다.")
+                risk_parts.append("거래대금이 크게 증가하여 모멘텀이 강하지만, 조정 가능성도 있습니다.")
         elif s.change_pct >= 12:
+            risk_parts.append("**강세 흐름**이 지속되고 있습니다.")
             if s.volume >= 10000000:
-                parts.append("강세 흐름이며 거래량이 활발합니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요.")
-            else:
-                parts.append("강세 흐름입니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요.")
+                risk_parts.append("거래량이 활발하여 유동성이 좋습니다.")
+            risk_parts.append("**눌림 구간에서 분할 진입**을 고려하되, 거래대금이 유지되는지 확인하세요.")
         elif s.change_pct >= 5:
-            parts.append("중간 강세입니다. 뉴스와 수급 변화를 지속적으로 모니터링하며, 추세가 지속되는지 확인하세요.")
+            risk_parts.append("**중간 강세** 구간입니다.")
+            risk_parts.append("뉴스와 수급 변화를 지속적으로 모니터링하며, **추세가 지속되는지 확인**하세요.")
         else:
-            parts.append("단기 변동성이 낮은 편입니다. 뉴스/수급 변화를 확인하며 보수적으로 접근하세요.")
+            risk_parts.append("**단기 변동성이 낮은 편**입니다.")
+            risk_parts.append("뉴스/수급 변화를 확인하며 **보수적으로 접근**하시기 바랍니다.")
         
-        return " ".join(parts) if parts else "분석 중..."
+        if risk_parts:
+            parts.append(" ".join(risk_parts))
+        
+        # === 7. Market-Specific Considerations ===
+        if s.market == "KOSDAQ":
+            if s.change_pct >= 20:
+                parts.append("코스닥 특성상 **변동성이 크므로 리스크 관리**가 특히 중요합니다.")
+        elif s.market == "KOSPI":
+            if s.change_pct >= 20:
+                parts.append("코스피 대형주 특성상 **안정성은 높으나 상승 모멘텀 지속 여부**를 확인하세요.")
+        
+        # === Final Summary ===
+        if not parts:
+            return "분석 중..."
+        
+        return " ".join(parts)
 
     return {
         "indices": [

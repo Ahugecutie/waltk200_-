@@ -16,20 +16,25 @@
       </div>
       <div class="status" id="statusText">서버에 연결을 시도합니다…</div>
       
-      <section class="card">
-        <h2 class="subtitle">서버 설정</h2>
-        <div class="row">
-          <label class="label" for="serverUrl">서버 URL</label>
-          <input type="text" id="serverUrl" class="input" placeholder="https://your-render-app.onrender.com" />
+      <section class="card card--collapsible" id="serverConfigCard">
+        <div class="card-header" id="serverConfigToggle">
+          <h2 class="subtitle">서버 설정</h2>
+          <span class="toggle-icon">▼</span>
         </div>
-        <div class="row">
-          <label class="label" for="token">토큰 (선택사항)</label>
-          <input type="text" id="token" class="input" placeholder="토큰이 있다면 입력" />
-        </div>
-        <div class="actions">
-          <button id="saveBtn" class="btn">저장</button>
-          <button id="refreshBtn" class="btn btn--ghost">수동 갱신</button>
-          <button id="clearBtn" class="btn btn--ghost">초기화</button>
+        <div class="card-content" id="serverConfigContent" style="display: none;">
+          <div class="row">
+            <label class="label" for="serverUrl">서버 URL</label>
+            <input type="text" id="serverUrl" class="input" placeholder="https://your-render-app.onrender.com" />
+          </div>
+          <div class="row">
+            <label class="label" for="token">토큰 (선택사항)</label>
+            <input type="text" id="token" class="input" placeholder="토큰이 있다면 입력" />
+          </div>
+          <div class="actions">
+            <button id="saveBtn" class="btn">저장</button>
+            <button id="refreshBtn" class="btn btn--ghost">수동 갱신</button>
+            <button id="clearBtn" class="btn btn--ghost">초기화</button>
+          </div>
         </div>
       </section>
       
