@@ -316,83 +316,71 @@ def detect_themes(stocks: List[RisingStock]) -> List[dict]:
     ]
 
 
-async def build_snapshot() -> dict:
-    async with httpx.AsyncClient(headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"}) as client:
-        indices = await fetch_index_quotes(client)
-        kospi_rise = await fetch_rising_stocks(client, "KOSPI", limit=80)
-        kosdaq_rise = await fetch_rising_stocks(client, "KOSDAQ", limit=80)
-        merged = kospi_rise + kosdaq_rise
-        merged.sort(key=lambda x: x.change_pct, reverse=True)
-        top20 = merged[:20]
-        
-        # Detect themes from all rising stocks (not just top20)
-        all_rising = kospi_rise + kosdaq_rise
-        themes = detect_themes(all_rising)
-
-    def signals_for(s: RisingStock) -> list[dict]:
-        """
-        Generate trading signals based on stock performance.
-        Comprehensive signal patterns matching original EXE logic.
-        
-        Signal Patterns:
-        1. 🔒 상한가 홀딩 / 매수 금지 - 상한가(29.8%+) 구간
-        2. ⚡ 돌파 매매 - 강한 상승세(20%+) 돌파 구간
-        3. 🧲 눌림목 매수 - 조정 후 재상승 기회(12%+)
-        4. 👀 고가 놀이 - 보합세, 수급 확인 필요(5-12%)
-        5. 📊 추세 추종 - 안정적 상승 추세(5% 미만)
-        6. 💰 차익 실현 매물 출회(관망) - 고가대 거래량 증가, 조정 가능성
-        7. 📈 거래량 급증 - 거래량 폭증 신호
-        """
-        sigs: list[dict] = []
-        
-        # Limit-up detection (상한가)
-        if s.change_pct >= 29.8:
-            sigs.append({"title": "🔒 상한가 홀딩 / 매수 금지", "desc": "상한가", "tone": "bad"})
-            # Calculate stop-loss (7% below current price for limit-up)
-            stop_loss = int(s.price * 0.93)
-            if s.trade_value >= 200000:  # 20억 이상 = 거래대금 폭발
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
-            else:
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
-        
-        # Strong breakout (20%+ but not limit-up)
-        elif s.change_pct >= 20:
-            stop_loss = int(s.price * 0.95)  # 5% stop-loss for strong moves
-            if s.trade_value >= 200000:  # 20억 이상
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
-            else:
-                sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
-        
-        # Pullback entry opportunity (12%+)
-        elif s.change_pct >= 12:
-            sigs.append({"title": "🧲 눌림목 매수 (분할 진입)", "desc": "강세, 거래대금 확인", "tone": "ok"})
-        
-        # Moderate strength (5-12%)
-        elif s.change_pct >= 5:
-            # Check for profit-taking signals (high volume at high price)
-            if s.volume >= 15000000 and s.trade_value >= 150000:  # 고가대 거래량 증가
-                sigs.append({"title": "💰 차익 실현 매물 출회(관망)", "desc": "고가대 거래량 증가, 조정 가능성", "tone": "neutral"})
-            else:
-                sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "강세, 변동성 유의", "tone": "neutral"})
-        
-        # Stable uptrend (0-5%)
-        elif s.change_pct > 0:
-            if s.volume >= 10000000 and s.trade_value >= 100000:  # 안정적 상승 추세
-                sigs.append({"title": "📊 추세 추종", "desc": "안정적 상승 추세, 지속 모니터링", "tone": "ok"})
-            else:
-                sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "보합세, 수급 확인 필요", "tone": "neutral"})
-        
-        # Negative or flat
+def signals_for(s: RisingStock) -> list[dict]:
+    """
+    Generate trading signals based on stock performance.
+    Comprehensive signal patterns matching original EXE logic.
+    
+    Signal Patterns:
+    1. 🔒 상한가 홀딩 / 매수 금지 - 상한가(29.8%+) 구간
+    2. ⚡ 돌파 매매 - 강한 상승세(20%+) 돌파 구간
+    3. 🧲 눌림목 매수 - 조정 후 재상승 기회(12%+)
+    4. 👀 고가 놀이 - 보합세, 수급 확인 필요(5-12%)
+    5. 📊 추세 추종 - 안정적 상승 추세(5% 미만)
+    6. 💰 차익 실현 매물 출회(관망) - 고가대 거래량 증가, 조정 가능성
+    7. 📈 거래량 급증 - 거래량 폭증 신호
+    """
+    sigs: list[dict] = []
+    
+    # Limit-up detection (상한가)
+    if s.change_pct >= 29.8:
+        sigs.append({"title": "🔒 상한가 홀딩 / 매수 금지", "desc": "상한가", "tone": "bad"})
+        # Calculate stop-loss (7% below current price for limit-up)
+        stop_loss = int(s.price * 0.93)
+        if s.trade_value >= 200000:  # 20억 이상 = 거래대금 폭발
+            sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+        else:
+            sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+    
+    # Strong breakout (20%+ but not limit-up)
+    elif s.change_pct >= 20:
+        stop_loss = int(s.price * 0.95)  # 5% stop-loss for strong moves
+        if s.trade_value >= 200000:  # 20억 이상
+            sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+        else:
+            sigs.append({"title": f"⚡ 돌파 매매 (손절 {stop_loss:,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+    
+    # Pullback entry opportunity (12%+)
+    elif s.change_pct >= 12:
+        sigs.append({"title": "🧲 눌림목 매수 (분할 진입)", "desc": "강세, 거래대금 확인", "tone": "ok"})
+    
+    # Moderate strength (5-12%)
+    elif s.change_pct >= 5:
+        # Check for profit-taking signals (high volume at high price)
+        if s.volume >= 15000000 and s.trade_value >= 150000:  # 고가대 거래량 증가
+            sigs.append({"title": "💰 차익 실현 매물 출회(관망)", "desc": "고가대 거래량 증가, 조정 가능성", "tone": "neutral"})
+        else:
+            sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "강세, 변동성 유의", "tone": "neutral"})
+    
+    # Stable uptrend (0-5%)
+    elif s.change_pct > 0:
+        if s.volume >= 10000000 and s.trade_value >= 100000:  # 안정적 상승 추세
+            sigs.append({"title": "📊 추세 추종", "desc": "안정적 상승 추세, 지속 모니터링", "tone": "ok"})
         else:
             sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "보합세, 수급 확인 필요", "tone": "neutral"})
+    
+    # Negative or flat
+    else:
+        sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "보합세, 수급 확인 필요", "tone": "neutral"})
 
-        # Volume surge indicator (applies to all cases)
-        if s.volume >= 20000000:  # 2천만주 이상
-            sigs.append({"title": "📈 거래량 급증", "desc": "수급 변동성 확대", "tone": "neutral"})
-        
-        return sigs[:6]
+    # Volume surge indicator (applies to all cases)
+    if s.volume >= 20000000:  # 2천만주 이상
+        sigs.append({"title": "📈 거래량 급증", "desc": "수급 변동성 확대", "tone": "neutral"})
+    
+    return sigs[:6]
 
-    def ai_opinion_for(s: RisingStock, detail: Optional[StockDetail] = None) -> str:
+
+def ai_opinion_for(s: RisingStock, detail: Optional[StockDetail] = None) -> str:
         """
         Generate comprehensive AI investment opinion based on multiple factors.
         Enhanced with detailed news analysis, technical indicators, financials, and investor trends.
@@ -573,6 +561,20 @@ async def build_snapshot() -> dict:
             return "분석 중..."
         
         return " ".join(parts)
+
+
+async def build_snapshot() -> dict:
+    async with httpx.AsyncClient(headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"}) as client:
+        indices = await fetch_index_quotes(client)
+        kospi_rise = await fetch_rising_stocks(client, "KOSPI", limit=80)
+        kosdaq_rise = await fetch_rising_stocks(client, "KOSDAQ", limit=80)
+        merged = kospi_rise + kosdaq_rise
+        merged.sort(key=lambda x: x.change_pct, reverse=True)
+        top20 = merged[:20]
+        
+        # Detect themes from all rising stocks (not just top20)
+        all_rising = kospi_rise + kosdaq_rise
+        themes = detect_themes(all_rising)
 
     return {
         "indices": [
