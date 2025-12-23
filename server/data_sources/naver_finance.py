@@ -188,13 +188,19 @@ async def build_snapshot() -> dict:
 
     def signals_for(s: RisingStock) -> list[dict]:
         sigs: list[dict] = []
-        # Heuristic signals (will be aligned to EXE analyzer later)
+        # Heuristic signals (aligned with EXE analyzer logic)
         if s.change_pct >= 29.8:
             sigs.append({"title": "🔒 상한가 홀딩 / 매수 금지", "desc": "상한가", "tone": "bad"})
-        if s.trade_value >= 200000:
-            sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.93):,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+            # 상한가일 때도 거래대금/모멘텀에 따라 돌파매매 신호 추가
+            if s.trade_value >= 200000:
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.93):,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+            else:
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.93):,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
         elif s.change_pct >= 20:
-            sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.95):,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+            if s.trade_value >= 200000:
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.95):,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+            else:
+                sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.95):,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
         elif s.change_pct >= 12:
             sigs.append({"title": "🧲 눌림목 매수 (분할 진입)", "desc": "강세, 거래대금 확인", "tone": "ok"})
         else:
