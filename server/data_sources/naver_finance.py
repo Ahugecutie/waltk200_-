@@ -700,12 +700,12 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         if "코스닥" in html or "kosdaq" in html.lower():
             market = "KOSDAQ"
         
-        # Previous day data for pivot (고가/저가/종가)
+        # Previous day data for pivot (고가/저가/종가) - optimized for speed
         prev_high = None
         prev_low = None
         prev_close = None
-        # Try multiple methods to find previous day data
-        # Method 1: Summary table
+        
+        # Fast path: Try summary table first (most common location)
         if summary_table:
             rows = summary_table.select("tr")
             for row in rows:
@@ -715,59 +715,64 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     td = row.select_one("td")
                     if td:
                         td_text = td.get_text(strip=True)
-                        if "전일" in th_text and "고가" in th_text:
-                            prev_high = _to_float(td_text)
-                        elif "전일" in th_text and "저가" in th_text:
-                            prev_low = _to_float(td_text)
-                        elif "전일" in th_text and "종가" in th_text:
-                            prev_close = _to_float(td_text)
+                        if "전일" in th_text:
+                            if "고가" in th_text:
+                                prev_high = _to_float(td_text)
+                            elif "저가" in th_text:
+                                prev_low = _to_float(td_text)
+                            elif "종가" in th_text:
+                                prev_close = _to_float(td_text)
+                        # Early exit if we found all three
+                        if prev_high and prev_low and prev_close:
+                            break
         
-        # Method 2: Try to find in other tables (type_2, type_1, etc.)
-        if not (prev_high and prev_low and prev_close):
-            all_tables = soup.select("table.type_2, table.type_1, table.tb_type1")
-            for table in all_tables:
-                rows = table.select("tr")
-                for row in rows:
-                    cells = row.select("th, td")
-                    for i, cell in enumerate(cells):
-                        cell_text = cell.get_text(strip=True)
-                        # Look for patterns like "전일고가", "52주고가" etc.
-                        if "전일" in cell_text and "고가" in cell_text and i + 1 < len(cells):
-                            prev_high = _to_float(cells[i + 1].get_text(strip=True))
-                        elif "전일" in cell_text and "저가" in cell_text and i + 1 < len(cells):
-                            prev_low = _to_float(cells[i + 1].get_text(strip=True))
-                        elif "전일" in cell_text and "종가" in cell_text and i + 1 < len(cells):
-                            prev_close = _to_float(cells[i + 1].get_text(strip=True))
-        
-        # Method 3: Try to get from chart data or API (if available)
-        # For now, we'll use current price as fallback for close if not found
+        # Quick fallback: estimate from current price if prev_close not found
         if not prev_close and price > 0:
-            # If we can't find previous close, estimate from current price and change
             if change != 0:
                 prev_close = price - change
             else:
                 prev_close = price
         
-        # Method 4: If we still don't have high/low, estimate from current price
-        # Use a reasonable range based on typical daily volatility (5-10%)
-        if not prev_high and prev_close:
-            prev_high = prev_close * 1.05  # Assume 5% high
-        if not prev_low and prev_close:
-            prev_low = prev_close * 0.95  # Assume 5% low
-        
-        # Calculate pivot points if we have at least previous close
+        # Calculate pivot points immediately (don't wait for high/low)
         pivot_data = None
         if prev_close:
-            # Use estimated high/low if not available
+            # Use estimated high/low if not available (faster than searching more tables)
             if not prev_high:
                 prev_high = prev_close * 1.05
             if not prev_low:
                 prev_low = prev_close * 0.95
             pivot_data = calculate_pivot_points(prev_high, prev_low, prev_close)
         
-        # Fetch news from news section
+        # Only search other tables if we still need high/low (optional, non-blocking)
+        if not (prev_high and prev_low) and summary_table:
+            # Quick scan of other tables (limited search for speed)
+            all_tables = soup.select("table.type_1, table.tb_type1")[:2]  # Limit to 2 tables
+            for table in all_tables:
+                rows = table.select("tr")[:10]  # Limit to first 10 rows
+                for row in rows:
+                    cells = row.select("th, td")
+                    for i, cell in enumerate(cells):
+                        cell_text = cell.get_text(strip=True)
+                        if "전일" in cell_text and i + 1 < len(cells):
+                            if "고가" in cell_text and not prev_high:
+                                prev_high = _to_float(cells[i + 1].get_text(strip=True))
+                            elif "저가" in cell_text and not prev_low:
+                                prev_low = _to_float(cells[i + 1].get_text(strip=True))
+                        # Early exit if found
+                        if prev_high and prev_low:
+                            break
+                    if prev_high and prev_low:
+                        break
+                if prev_high and prev_low:
+                    break
+            # Recalculate pivot if we found better high/low values
+            if (prev_high and prev_low and prev_close and 
+                (prev_high != prev_close * 1.05 or prev_low != prev_close * 0.95)):
+                pivot_data = calculate_pivot_points(prev_high, prev_low, prev_close)
+        
+        # Fetch news from news section - improved parsing with more selectors
         news = []
-        # Try multiple selectors for news
+        # Try multiple selectors for news (expanded list)
         news_selectors = [
             "div.news_area ul li a",
             "div#news ul li a",
@@ -776,19 +781,27 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             "div.news_area a",
             "ul.news_list a",
             "div.news a",
+            "dl.news_list dt a",
+            "div.tab_con1 ul li a",
+            "div.tab_con ul li a",
+            "div.news_wrap ul li a",
+            "div.news_list ul li a",
+            "table.type_2 a[href*='news']",
+            "div.cmp_news ul li a",
         ]
         for selector in news_selectors:
             news_items = soup.select(selector)
             if news_items:
-                for item in news_items[:5]:  # Top 5 news
+                for item in news_items[:10]:  # Check more items
                     title = item.get_text(strip=True)
                     href = item.get("href", "")
-                    if title and len(title) > 5:  # Filter out very short titles
+                    # More lenient title filter
+                    if title and len(title) > 3 and not title.startswith("더보기"):
                         # Extract date
                         date = ""
                         parent = item.parent
                         if parent:
-                            date_el = parent.select_one("span.date, span.time, em.date, span.info")
+                            date_el = parent.select_one("span.date, span.time, em.date, span.info, em.info")
                             if date_el:
                                 date = date_el.get_text(strip=True)
                             # Also check siblings
@@ -798,7 +811,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     break
                             # Check parent's parent for date
                             if not date and parent.parent:
-                                date_el = parent.parent.select_one("span.date, span.time, em.date")
+                                date_el = parent.parent.select_one("span.date, span.time, em.date, em.info")
                                 if date_el:
                                     date = date_el.get_text(strip=True)
                         
@@ -807,38 +820,63 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             full_url = f"https://finance.naver.com{href}"
                         elif href.startswith("http"):
                             full_url = href
-                        else:
+                        elif href:
                             full_url = f"https://finance.naver.com/{href}"
+                        else:
+                            continue  # Skip if no valid href
                         
-                        news.append({
-                            "title": title,
-                            "date": date,
-                            "url": full_url,
-                        })
-                if len(news) > 0:
-                    break  # Found news, stop trying other selectors
+                        # Avoid duplicates
+                        if not any(n.get("url") == full_url for n in news):
+                            news.append({
+                                "title": title,
+                                "date": date,
+                                "url": full_url,
+                            })
+                            if len(news) >= 5:  # Stop at 5 news items
+                                break
+                if len(news) >= 5:
+                    break  # Found enough news, stop trying other selectors
         
-        # If no news found, try fetching from news page (with timeout to avoid blocking)
+        # If no news found, try fetching from news page (parallel fetch for speed)
         if not news:
             try:
-                news_html = await _get(client, f"https://finance.naver.com/item/news.naver?code={code}")
+                # Use shorter timeout for news page
+                news_res = await client.get(
+                    f"https://finance.naver.com/item/news.naver?code={code}",
+                    follow_redirects=True,
+                    timeout=10.0
+                )
+                news_res.encoding = "euc-kr"
+                news_html = news_res.text
                 news_soup = BeautifulSoup(news_html, "html.parser")
-                news_items = news_soup.select("dl dt a, table.news_table a, ul.news_list a")
-                for item in news_items[:5]:
+                # More comprehensive selectors for news page
+                news_items = news_soup.select(
+                    "dl dt a, table.news_table a, ul.news_list a, "
+                    "div.news_area ul li a, div#news ul li a, "
+                    "div.tab_con1 ul li a, div.news_list ul li a"
+                )
+                for item in news_items[:10]:
                     title = item.get_text(strip=True)
                     href = item.get("href", "")
-                    if title and len(title) > 5:
+                    if title and len(title) > 3 and not title.startswith("더보기"):
                         if href.startswith("/"):
                             full_url = f"https://finance.naver.com{href}"
                         elif href.startswith("http"):
                             full_url = href
-                        else:
+                        elif href:
                             full_url = f"https://finance.naver.com/{href}"
-                        news.append({
-                            "title": title,
-                            "date": "",
-                            "url": full_url,
-                        })
+                        else:
+                            continue
+                        
+                        # Avoid duplicates
+                        if not any(n.get("url") == full_url for n in news):
+                            news.append({
+                                "title": title,
+                                "date": "",
+                                "url": full_url,
+                            })
+                            if len(news) >= 5:
+                                break
             except Exception as e:
                 print(f"Warning: Failed to fetch news page for {code}: {e}")
                 # Continue without news - don't block the response
