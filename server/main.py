@@ -70,6 +70,10 @@ async def stock_detail(code: str, request: Request) -> JSONResponse:
     Get detailed information for a specific stock.
     Includes: pivot points, news, financials, investor trends, enhanced AI opinion.
     """
+    # Input validation: stock code should be 6 digits
+    if not code or not code.isdigit() or len(code) != 6:
+        return JSONResponse({"ok": False, "error": "invalid stock code"}, status_code=400)
+    
     token = (request.headers.get("X-App-Token") or "").strip()
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)

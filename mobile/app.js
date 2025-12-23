@@ -252,7 +252,6 @@ async function openModal(stock) {
 }
 
 function renderStockDetail(detail) {
-  console.log("Rendering stock detail:", detail); // Debug log
   
   // Update AI opinion with enhanced detail (if available)
   if (detail.ai_opinion && els.mAi) {
