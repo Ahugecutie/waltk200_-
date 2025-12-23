@@ -78,35 +78,34 @@ async def _get(client: httpx.AsyncClient, url: str) -> str:
 
 async def fetch_index_quotes(client: httpx.AsyncClient) -> List[IndexQuote]:
     """
-    Best-effort parsing from Naver finance main page.
-    If parsing fails, returns empty list.
+    Best-effort parsing for KOSPI/KOSDAQ from `sise_index.naver`.
+    This is more stable than the main page and works in headless environments.
     """
-    try:
-        html = await _get(client, "https://finance.naver.com/sise/")
-        # Try known ids first
-        # Common ids in the page: KOSPI_now, KOSDAQ_now; changes nearby.
-        kospi_now = re.search(r'id="KOSPI_now"\s*>\s*([0-9\.,]+)\s*<', html)
-        kosdaq_now = re.search(r'id="KOSDAQ_now"\s*>\s*([0-9\.,]+)\s*<', html)
+    async def fetch_one(code: str) -> Optional[IndexQuote]:
+        try:
+            html = await _get(client, f"https://finance.naver.com/sise/sise_index.naver?code={code}")
+            now_m = re.search(r'id\s*=\s*["\\\']now_value["\\\']\s*>\s*([0-9\\.,]+)\s*<', html)
+            if not now_m:
+                return None
+            now = _to_float(now_m.group(1))
+            # change + pct are inside: <span class="fluc" id="change_value_and_rate"><span>8.70</span> +0.21% ...
+            block_m = re.search(r'id\s*=\s*["\\\']change_value_and_rate["\\\'][^>]*>([\\s\\S]*?)</span>\\s*</div>', html)
+            block = block_m.group(1) if block_m else ""
+            # first <span>..</span> is absolute change
+            ch_m = re.search(r"<span>\\s*([+\\-]?[0-9\\.,]+)\\s*</span>", block)
+            ch = _to_float(ch_m.group(1)) if ch_m else 0.0
+            pct_m = re.search(r"([+\\-]?[0-9\\.,]+)\\s*%", block)
+            pct = _to_float(pct_m.group(1)) if pct_m else 0.0
+            return IndexQuote(code, now, ch, pct)
+        except Exception:
+            return None
 
-        def extract_change(block_id: str) -> tuple[float, float]:
-            # Search around the block id area for change and pct.
-            m = re.search(rf'id="{block_id}"[\s\S]{{0,400}}?class="change"\s*>\s*([+\-]?[0-9\.,]+)\s*<', html)
-            p = re.search(rf'id="{block_id}"[\s\S]{{0,600}}?class="change"\s*>\s*[+\-]?[0-9\.,]+\s*<[\s\S]{{0,300}}?class="change"\s*>\s*([+\-]?[0-9\.,]+)\s*%?\s*<', html)
-            # fallback: pct next to now?
-            change = _to_float(m.group(1)) if m else 0.0
-            pct = _to_float(p.group(1)) if p else 0.0
-            return change, pct
-
-        out: List[IndexQuote] = []
-        if kospi_now:
-            ch, pct = extract_change("KOSPI_now")
-            out.append(IndexQuote("KOSPI", _to_float(kospi_now.group(1)), ch, pct))
-        if kosdaq_now:
-            ch, pct = extract_change("KOSDAQ_now")
-            out.append(IndexQuote("KOSDAQ", _to_float(kosdaq_now.group(1)), ch, pct))
-        return out
-    except Exception:
-        return []
+    out: List[IndexQuote] = []
+    for code in ("KOSPI", "KOSDAQ"):
+        q = await fetch_one(code)
+        if q:
+            out.append(q)
+    return out
 
 
 async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int = 50) -> List[RisingStock]:
