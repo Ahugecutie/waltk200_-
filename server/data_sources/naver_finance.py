@@ -332,7 +332,16 @@ async def build_snapshot() -> dict:
     def signals_for(s: RisingStock) -> list[dict]:
         """
         Generate trading signals based on stock performance.
-        Refined to better match original EXE logic.
+        Comprehensive signal patterns matching original EXE logic.
+        
+        Signal Patterns:
+        1. 🔒 상한가 홀딩 / 매수 금지 - 상한가(29.8%+) 구간
+        2. ⚡ 돌파 매매 - 강한 상승세(20%+) 돌파 구간
+        3. 🧲 눌림목 매수 - 조정 후 재상승 기회(12%+)
+        4. 👀 고가 놀이 - 보합세, 수급 확인 필요(5-12%)
+        5. 📊 추세 추종 - 안정적 상승 추세(5% 미만)
+        6. 💰 차익 실현 매물 출회(관망) - 고가대 거래량 증가, 조정 가능성
+        7. 📈 거래량 급증 - 거래량 폭증 신호
         """
         sigs: list[dict] = []
         
@@ -358,11 +367,26 @@ async def build_snapshot() -> dict:
         elif s.change_pct >= 12:
             sigs.append({"title": "🧲 눌림목 매수 (분할 진입)", "desc": "강세, 거래대금 확인", "tone": "ok"})
         
-        # Moderate strength
+        # Moderate strength (5-12%)
+        elif s.change_pct >= 5:
+            # Check for profit-taking signals (high volume at high price)
+            if s.volume >= 15000000 and s.trade_value >= 150000:  # 고가대 거래량 증가
+                sigs.append({"title": "💰 차익 실현 매물 출회(관망)", "desc": "고가대 거래량 증가, 조정 가능성", "tone": "neutral"})
+            else:
+                sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "강세, 변동성 유의", "tone": "neutral"})
+        
+        # Stable uptrend (0-5%)
+        elif s.change_pct > 0:
+            if s.volume >= 10000000 and s.trade_value >= 100000:  # 안정적 상승 추세
+                sigs.append({"title": "📊 추세 추종", "desc": "안정적 상승 추세, 지속 모니터링", "tone": "ok"})
+            else:
+                sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "보합세, 수급 확인 필요", "tone": "neutral"})
+        
+        # Negative or flat
         else:
-            sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "강세, 변동성 유의", "tone": "neutral"})
+            sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "보합세, 수급 확인 필요", "tone": "neutral"})
 
-        # Volume surge indicator
+        # Volume surge indicator (applies to all cases)
         if s.volume >= 20000000:  # 2천만주 이상
             sigs.append({"title": "📈 거래량 급증", "desc": "수급 변동성 확대", "tone": "neutral"})
         
