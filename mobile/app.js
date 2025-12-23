@@ -359,11 +359,12 @@ function renderStockDetail(detail) {
               const period = f.period || f.date || "Recent";
               const sales = f.sales || f.revenue || 0;
               const profit = f.operating_profit || f.profit || 0;
+              const profitClass = profit >= 0 ? "up" : "down";
               return `
                 <tr>
                   <td>${period}</td>
                   <td class="right">${fmtNum(sales)}</td>
-                  <td class="right">${fmtNum(profit)}</td>
+                  <td class="right ${profitClass}">${fmtNum(profit)}</td>
                 </tr>
               `;
             }).join("")}
@@ -399,11 +400,13 @@ function renderStockDetail(detail) {
                 const formatted = fmtNum(Math.abs(n));
                 return n > 0 ? `+${formatted}` : `-${formatted}`;
               };
+              const instClass = institution >= 0 ? "up" : "down";
+              const forClass = foreigner >= 0 ? "up" : "down";
               return `
                 <tr>
                   <td>${date}</td>
-                  <td class="right">${fmtInvestor(institution)}</td>
-                  <td class="right">${fmtInvestor(foreigner)}</td>
+                  <td class="right ${instClass}">${fmtInvestor(institution)}</td>
+                  <td class="right ${forClass}">${fmtInvestor(foreigner)}</td>
                 </tr>
               `;
             }).join("")}

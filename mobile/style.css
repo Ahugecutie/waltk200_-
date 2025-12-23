@@ -211,10 +211,18 @@ body{
 .mini__box{border:1px solid var(--border); border-radius:12px; padding:12px; background:rgba(0,0,0,.14); font-size:13px; line-height:1.5}
 
 .section{margin-top:16px}
-.pivotRow{display:flex; gap:6px; margin-top:8px; justify-content:space-between}
+.pivotRow{
+  display:flex;
+  flex-wrap:nowrap;
+  gap:6px;
+  margin-top:8px;
+  justify-content:space-between;
+  overflow-x:auto;
+}
 .pivotItem{
-  flex:1;
-  min-width:0;
+  flex:1 1 0;
+  min-width:80px;
+  max-width:none;
   padding:10px 6px;
   border-radius:8px;
   border:1px solid var(--border);
@@ -223,6 +231,7 @@ body{
   display:flex;
   flex-direction:column;
   gap:4px;
+  flex-shrink:0;
 }
 .pivotItem__label{
   font-size:11px;
