@@ -581,19 +581,18 @@ def ai_opinion_for(s: RisingStock, detail: Optional[StockDetail] = None) -> str:
         return " ".join(parts)
 
 
-async def build_snapshot() -> dict:
-    async with httpx.AsyncClient(headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"}) as client:
-        indices = await fetch_index_quotes(client)
-        kospi_rise = await fetch_rising_stocks(client, "KOSPI", limit=80)
-        kosdaq_rise = await fetch_rising_stocks(client, "KOSDAQ", limit=80)
-        merged = kospi_rise + kosdaq_rise
-        # Sort by Score (not just change_pct) to consider liquidity and participation
-        merged.sort(key=lambda x: calculate_score(x), reverse=True)
-        top30 = merged[:30]
-        
-        # Detect themes from all rising stocks (not just top30)
-        all_rising = kospi_rise + kosdaq_rise
-        themes = detect_themes(all_rising)
+async def build_snapshot(client: httpx.AsyncClient) -> dict:
+    indices = await fetch_index_quotes(client)
+    kospi_rise = await fetch_rising_stocks(client, "KOSPI", limit=80)
+    kosdaq_rise = await fetch_rising_stocks(client, "KOSDAQ", limit=80)
+    merged = kospi_rise + kosdaq_rise
+    # Sort by Score (not just change_pct) to consider liquidity and participation
+    merged.sort(key=lambda x: calculate_score(x), reverse=True)
+    top30 = merged[:30]
+    
+    # Detect themes from all rising stocks (not just top30)
+    all_rising = kospi_rise + kosdaq_rise
+    themes = detect_themes(all_rising)
 
     return {
         "indices": [

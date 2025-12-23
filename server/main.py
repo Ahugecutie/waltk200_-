@@ -36,6 +36,13 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+@app.on_event("startup")
+async def startup_event():
+    import asyncio
+    from server.cache_worker import cache_loop
+    asyncio.create_task(cache_loop())
+    print("[SERVER] Cache worker started")
+
 # ✅ 루트 경로: /app/로 리다이렉트
 @app.get("/")
 async def root():
@@ -65,11 +72,17 @@ _inflight_refresh: Optional[asyncio.Task] = None
 # --------------------------------------------------
 @app.get("/health")
 def health() -> JSONResponse:
-    return JSONResponse({
-        "ok": True,
-        "ts": int(time.time()),
-        "owner": OWNER_NAME,
-    })
+    from server.cache import GLOBAL_CACHE, CACHE_LOCK
+    with CACHE_LOCK:
+        return JSONResponse({
+            "ok": True,
+            "ts": int(time.time()),
+            "owner": OWNER_NAME,
+            "cache_status": GLOBAL_CACHE["status"],
+            "updated_at": GLOBAL_CACHE["updated_at"],
+            "snapshot_ready": GLOBAL_CACHE["snapshot"] is not None,
+            "detail_count": len(GLOBAL_CACHE["detail"]),
+        })
 
 
 # --------------------------------------------------
@@ -81,14 +94,16 @@ async def snapshot(request: Request) -> JSONResponse:
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
 
-    async with _latest_lock:
-        payload = _latest_payload or {
-            "type": "empty",
-            "ts": int(time.time()),
-            "owner": OWNER_NAME,
-        }
-
-    return JSONResponse(payload)
+    from server.cache import GLOBAL_CACHE, CACHE_LOCK
+    with CACHE_LOCK:
+        if GLOBAL_CACHE["snapshot"] is None:
+            return JSONResponse({
+                "status": "warming_up",
+                "message": "데이터 준비 중 (최초 1회)",
+                "ts": int(time.time()),
+                "owner": OWNER_NAME,
+            })
+        return JSONResponse(GLOBAL_CACHE["snapshot"])
 
 
 @app.post("/refresh")
@@ -114,28 +129,49 @@ async def stock_detail(code: str, request: Request) -> JSONResponse:
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
 
-    try:
-        async with httpx.AsyncClient(headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept-Language": "ko-KR,ko;q=0.9"
-        }, timeout=20.0) as client:
-            detail = await fetch_stock_detail(client, code)
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"failed to fetch stock data: {str(e)}"}, status_code=500)
+    from server.cache import GLOBAL_CACHE, CACHE_LOCK
+    with CACHE_LOCK:
+        detail = GLOBAL_CACHE["detail"].get(code)
 
-    if not detail:
-        return JSONResponse({"ok": False, "error": "stock not found"}, status_code=404)
+    if detail is None:
+        return JSONResponse({
+            "ok": False,
+            "status": "not_ready",
+            "message": "분석 준비 중",
+            "error": "stock_not_ready"
+        }, status_code=404)
 
-    rising_stock = RisingStock(
-        code=detail.code,
-        name=detail.name,
-        price=detail.price,
-        change=detail.change,
-        change_pct=detail.change_pct,
-        volume=detail.volume,
-        trade_value=detail.trade_value,
-        market=detail.market,
-    )
+    # Find corresponding stock from snapshot for signals/ai_opinion
+    with CACHE_LOCK:
+        snapshot = GLOBAL_CACHE["snapshot"]
+
+    rising_stock = None
+    if snapshot and snapshot.get("stocks"):
+        for s in snapshot.get("stocks", []):
+            if s.get("code") == code:
+                rising_stock = RisingStock(
+                    code=s["code"],
+                    name=s["name"],
+                    price=s["price"],
+                    change=s.get("change", 0),
+                    change_pct=s.get("change_pct", 0.0),
+                    volume=s.get("volume", 0),
+                    trade_value=s.get("trade_value", 0),
+                    market=s.get("market", "KOSPI"),
+                )
+                break
+
+    if not rising_stock:
+        rising_stock = RisingStock(
+            code=detail.code,
+            name=detail.name,
+            price=detail.price,
+            change=detail.change,
+            change_pct=detail.change_pct,
+            volume=detail.volume,
+            trade_value=detail.trade_value,
+            market=detail.market,
+        )
 
     ai_opinion = ai_opinion_for(rising_stock, detail)
 
