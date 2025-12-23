@@ -569,10 +569,11 @@ async def build_snapshot() -> dict:
         kospi_rise = await fetch_rising_stocks(client, "KOSPI", limit=80)
         kosdaq_rise = await fetch_rising_stocks(client, "KOSDAQ", limit=80)
         merged = kospi_rise + kosdaq_rise
-        merged.sort(key=lambda x: x.change_pct, reverse=True)
-        top20 = merged[:20]
+        # Sort by Score (not just change_pct) to consider liquidity and participation
+        merged.sort(key=lambda x: calculate_score(x), reverse=True)
+        top30 = merged[:30]
         
-        # Detect themes from all rising stocks (not just top20)
+        # Detect themes from all rising stocks (not just top30)
         all_rising = kospi_rise + kosdaq_rise
         themes = detect_themes(all_rising)
 
@@ -596,7 +597,7 @@ async def build_snapshot() -> dict:
                 "signals": signals_for(s),
                 "ai_opinion": ai_opinion_for(s, None),  # Basic opinion, will be enhanced with detail in modal
             }
-            for s in top20
+            for s in top30
         ],
         "source": "naver_finance",
     }
