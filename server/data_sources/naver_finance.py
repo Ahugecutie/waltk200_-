@@ -186,6 +186,34 @@ async def build_snapshot() -> dict:
         merged.sort(key=lambda x: x.change_pct, reverse=True)
         top20 = merged[:20]
 
+    def signals_for(s: RisingStock) -> list[dict]:
+        sigs: list[dict] = []
+        # Heuristic signals (will be aligned to EXE analyzer later)
+        if s.change_pct >= 29.8:
+            sigs.append({"title": "🔒 상한가 홀딩 / 매수 금지", "desc": "상한가", "tone": "bad"})
+        if s.trade_value >= 200000:
+            sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.93):,}원)", "desc": "급등, 거래대금 폭발", "tone": "warn"})
+        elif s.change_pct >= 20:
+            sigs.append({"title": f"⚡ 돌파 매매 (손절 {int(s.price * 0.95):,}원)", "desc": "급등, 모멘텀 수급", "tone": "warn"})
+        elif s.change_pct >= 12:
+            sigs.append({"title": "🧲 눌림목 매수 (분할 진입)", "desc": "강세, 거래대금 확인", "tone": "ok"})
+        else:
+            sigs.append({"title": "👀 고가 놀이 (수급 확인)", "desc": "강세, 변동성 유의", "tone": "neutral"})
+
+        if s.volume >= 20000000:
+            sigs.append({"title": "📈 거래량 급증", "desc": "수급 변동성 확대", "tone": "neutral"})
+        return sigs[:6]
+
+    def ai_opinion_for(s: RisingStock) -> str:
+        # Lightweight rule-based placeholder (no external AI calls)
+        if s.change_pct >= 29.8:
+            return "상한가 구간입니다. 추격매수는 위험하며, 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요."
+        if s.change_pct >= 20:
+            return "급등 구간입니다. 거래대금과 추가 수급 유입을 확인하면서, 손절 라인을 먼저 정하는 것이 좋습니다."
+        if s.change_pct >= 12:
+            return "강세 흐름입니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요."
+        return "단기 변동성이 낮은 편입니다. 뉴스/수급 변화를 확인하며 보수적으로 접근하세요."
+
     return {
         "indices": [
             {"name": q.name, "value": q.value, "change": q.change, "change_pct": q.change_pct} for q in indices
@@ -203,6 +231,8 @@ async def build_snapshot() -> dict:
                 "trade_value": s.trade_value,
                 "link": f"https://finance.naver.com/item/main.naver?code={s.code}",
                 "score": int(min(150, max(0, round(s.change_pct * 5)))),  # placeholder scoring
+                "signals": signals_for(s),
+                "ai_opinion": ai_opinion_for(s),
             }
             for s in top20
         ],

@@ -23,6 +23,7 @@ const els = {
   mTitle: document.getElementById("mTitle"),
   mSub: document.getElementById("mSub"),
   mPills: document.getElementById("mPills"),
+  mSignals: document.getElementById("mSignals"),
   mLink: document.getElementById("mLink"),
   mAi: document.getElementById("mAi"),
   mClose: document.getElementById("mClose"),
@@ -167,7 +168,23 @@ function openModal(stock) {
     els.mPills.appendChild(div);
   }
   els.mLink.href = stock.link || "#";
-  els.mAi.textContent = "추후 기존 EXE 로직과 동일하게 연결됩니다.";
+  // signals
+  els.mSignals.innerHTML = "";
+  const sigs = Array.isArray(stock.signals) ? stock.signals : [];
+  for (const s of sigs) {
+    const tone = s.tone === "bad" ? "sig--bad" : s.tone === "warn" ? "sig--warn" : s.tone === "ok" ? "sig--ok" : "";
+    const div = document.createElement("div");
+    div.className = `sig ${tone}`;
+    div.innerHTML = `
+      <div class="sig__left">
+        <div class="sig__title">${s.title ?? ""}</div>
+        <div class="sig__desc">${s.desc ?? ""}</div>
+      </div>
+    `;
+    els.mSignals.appendChild(div);
+  }
+
+  els.mAi.textContent = stock.ai_opinion || "추후 기존 EXE 로직과 동일하게 연결됩니다.";
   if (typeof els.modal.showModal === "function") els.modal.showModal();
 }
 

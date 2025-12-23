@@ -8,39 +8,6 @@
     <title>주도주 탐색기</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
-  <body>
-    <main class="app">
-      <header class="top">
-        <div class="brand">주도주 탐색기</div>
-        <div id="statusBadge" class="badge badge--warn" aria-live="polite">연결 확인 중…</div>
-      </header>
-
-      <section class="card">
-        <h1 class="title">실시간 상태</h1>
-        <p id="statusText" class="status">서버에 연결 중입니다…</p>
-
-        <div class="row">
-          <label class="label" for="serverUrl">서버 주소</label>
-          <input id="serverUrl" class="input" placeholder="예: https://example.com (또는 비움=현재 주소)" />
-        </div>
-
-        <div class="row">
-          <label class="label" for="token">접속 토큰(선택)</label>
-          <input id="token" class="input" placeholder="서버에서 설정한 토큰" />
-        </div>
-
-        <div class="actions">
-          <button id="saveBtn" class="btn">저장/재연결</button>
-          <button id="refreshBtn" class="btn">데이터 갱신</button>
-          <button id="clearBtn" class="btn btn--ghost">초기화</button>
-        </div>
-
-        <p class="hint">
-          - 서버(PC)가 꺼져 있으면 아래 문구가 표시됩니다.<br />
-          - 한 번 설치(PWA 추가)해두면, 서버가 꺼져도 앱은 열리고 상태를 안내합니다.
-        </p>
-      </section>
-
       <section class="card">
         <h2 class="subtitle">최근 수신</h2>
         <pre id="lastPayload" class="mono">(아직 없음)</pre>
@@ -104,6 +71,7 @@
       </div>
       <div class="modal__body">
         <div class="pillRow" id="mPills"></div>
+        <div class="sigList" id="mSignals"></div>
         <a id="mLink" class="link" href="#" target="_blank" rel="noreferrer">네이버 금융에서 더보기</a>
         <div class="mini">
           <div class="mini__label">AI 투자 의견 (Beta)</div>
