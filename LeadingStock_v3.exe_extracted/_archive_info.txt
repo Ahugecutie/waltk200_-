@@ -1,9 +1,0 @@
-exe_path=C:\Users\PC\Desktop\주식관련\주도주탐색기\LeadingStock_v3.exe
-cookie_offset=37276389
-archive_size=36937021
-archive_start=339456
-toc_offset=36859637
-toc_size=77296
-pyver=313
-pylibname=python313.dll
-entries=1367
