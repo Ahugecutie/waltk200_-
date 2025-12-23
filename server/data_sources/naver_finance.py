@@ -378,9 +378,14 @@ async def build_snapshot() -> dict:
         # Investor trend analysis (if available)
         if detail and detail.investor_trends and len(detail.investor_trends) > 0:
             latest = detail.investor_trends[0]
-            if latest.foreigner > 100000:  # 외국인 순매수 1억 이상
+            # Handle both dict and object access
+            if isinstance(latest, dict):
+                foreigner_val = latest.get("foreigner", 0)
+            else:
+                foreigner_val = getattr(latest, "foreigner", 0) if hasattr(latest, "foreigner") else 0
+            if foreigner_val > 100000:  # 외국인 순매수 1억 이상
                 parts.append("**외국인이 매수세를 주도**하고 있으며 주가 상승을 이끌고 있습니다.")
-            elif latest.foreigner < -100000:  # 외국인 순매도
+            elif foreigner_val < -100000:  # 외국인 순매도
                 parts.append("외국인 매도세가 지속되고 있어 주의가 필요합니다.")
         
         # News trigger analysis
