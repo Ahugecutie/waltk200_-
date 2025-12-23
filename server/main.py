@@ -14,6 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from server.data_sources.naver_finance import build_snapshot, fetch_stock_detail
 
 
+# --------------------------------------------------
+# Paths & Env
+# --------------------------------------------------
 APP_ROOT = Path(__file__).resolve().parent.parent
 MOBILE_DIR = APP_ROOT / "mobile"
 
@@ -22,35 +25,57 @@ APP_TOKEN = os.environ.get("APP_TOKEN", "").strip()
 AUTO_REFRESH_SEC = float(os.environ.get("AUTO_REFRESH_SEC", "60").strip() or "60")
 
 
+# --------------------------------------------------
+# FastAPI App
+# --------------------------------------------------
 app = FastAPI(title="LeadingStock API", version="0.1.0")
 
+# ✅ 반드시 여기서 StaticFiles 등록
+if MOBILE_DIR.exists():
+    app.mount(
+        "/",
+        StaticFiles(directory=str(MOBILE_DIR), html=True),
+        name="mobile"
+    )
+
+
+# --------------------------------------------------
+# Global State
+# --------------------------------------------------
 _latest_payload: Optional[dict] = None
 _latest_lock = asyncio.Lock()
 _refresh_now = asyncio.Event()
 _inflight_refresh: Optional[asyncio.Task] = None
 
 
+# --------------------------------------------------
+# Health
+# --------------------------------------------------
 @app.get("/health")
 def health() -> JSONResponse:
-    return JSONResponse(
-        {
-            "ok": True,
-            "ts": int(time.time()),
-            "owner": OWNER_NAME,
-        }
-    )
+    return JSONResponse({
+        "ok": True,
+        "ts": int(time.time()),
+        "owner": OWNER_NAME,
+    })
 
+
+# --------------------------------------------------
+# Snapshot API
+# --------------------------------------------------
 @app.get("/snapshot")
 async def snapshot(request: Request) -> JSONResponse:
     token = (request.headers.get("X-App-Token") or "").strip()
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
     async with _latest_lock:
         payload = _latest_payload or {
             "type": "empty",
             "ts": int(time.time()),
             "owner": OWNER_NAME,
         }
+
     return JSONResponse(payload)
 
 
@@ -59,38 +84,35 @@ async def refresh(request: Request) -> JSONResponse:
     token = (request.headers.get("X-App-Token") or "").strip()
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    # Triggers an immediate refresh cycle (best-effort).
+
     _refresh_now.set()
     return JSONResponse({"ok": True, "ts": int(time.time())})
 
 
+# --------------------------------------------------
+# Stock Detail
+# --------------------------------------------------
 @app.get("/stock/{code}")
 async def stock_detail(code: str, request: Request) -> JSONResponse:
-    """
-    Get detailed information for a specific stock.
-    Includes: pivot points, news, financials, investor trends, enhanced AI opinion.
-    """
-    # Input validation: stock code should be 6 digits
-    if not code or not code.isdigit() or len(code) != 6:
+    if not code.isdigit() or len(code) != 6:
         return JSONResponse({"ok": False, "error": "invalid stock code"}, status_code=400)
-    
+
     token = (request.headers.get("X-App-Token") or "").strip()
     if APP_TOKEN and token != APP_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    
+
     import httpx
     from server.data_sources.naver_finance import RisingStock, ai_opinion_for
-    
+
     async with httpx.AsyncClient(headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept-Language": "ko-KR,ko;q=0.9"
     }) as client:
         detail = await fetch_stock_detail(client, code)
-    
+
     if not detail:
         return JSONResponse({"ok": False, "error": "stock not found"}, status_code=404)
-    
-    # Create a RisingStock object for AI opinion generation
+
     rising_stock = RisingStock(
         code=detail.code,
         name=detail.name,
@@ -101,84 +123,79 @@ async def stock_detail(code: str, request: Request) -> JSONResponse:
         trade_value=detail.trade_value,
         market=detail.market,
     )
-    
-    # Generate enhanced AI opinion with detail
-    enhanced_ai_opinion = ai_opinion_for(rising_stock, detail)
-    
-    # Convert to dict for JSON response
-    result = {
-        "code": detail.code,
-        "name": detail.name,
-        "price": detail.price,
-        "change": detail.change,
-        "change_pct": detail.change_pct,
-        "volume": detail.volume,
-        "trade_value": detail.trade_value,
-        "market": detail.market,
-        "pivot": {
-            "pivot": detail.pivot,
-            "r1": detail.r1,
-            "r2": detail.r2,
-            "s1": detail.s1,
-            "s2": detail.s2,
-        } if detail.pivot else None,
-        "news": detail.news or [],
-        "financials": detail.financials or [],
-        "investor_trends": detail.investor_trends or [],
-        "ai_opinion": enhanced_ai_opinion,  # Enhanced with detail
-    }
-    
-    return JSONResponse({"ok": True, "data": result})
+
+    ai_opinion = ai_opinion_for(rising_stock, detail)
+
+    return JSONResponse({
+        "ok": True,
+        "data": {
+            "code": detail.code,
+            "name": detail.name,
+            "price": detail.price,
+            "change": detail.change,
+            "change_pct": detail.change_pct,
+            "volume": detail.volume,
+            "trade_value": detail.trade_value,
+            "market": detail.market,
+            "pivot": {
+                "pivot": detail.pivot,
+                "r1": detail.r1,
+                "r2": detail.r2,
+                "s1": detail.s1,
+                "s2": detail.s2,
+            } if detail.pivot else None,
+            "news": detail.news or [],
+            "financials": detail.financials or [],
+            "investor_trends": detail.investor_trends or [],
+            "ai_opinion": ai_opinion,
+        }
+    })
 
 
+# --------------------------------------------------
+# WebSocket Hub
+# --------------------------------------------------
 class Hub:
     def __init__(self) -> None:
         self._clients: Set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
-    async def add(self, ws: WebSocket) -> None:
+    async def add(self, ws: WebSocket):
         async with self._lock:
             self._clients.add(ws)
 
-    async def remove(self, ws: WebSocket) -> None:
+    async def remove(self, ws: WebSocket):
         async with self._lock:
             self._clients.discard(ws)
 
-    async def broadcast(self, payload: dict) -> None:
+    async def broadcast(self, payload: dict):
         msg = json.dumps(payload, ensure_ascii=False)
         async with self._lock:
             clients = list(self._clients)
-        if not clients:
-            return
-        dead: list[WebSocket] = []
+
         for ws in clients:
             try:
                 await ws.send_text(msg)
             except Exception:
-                dead.append(ws)
-        if dead:
-            async with self._lock:
-                for ws in dead:
-                    self._clients.discard(ws)
+                await self.remove(ws)
 
 
 hub = Hub()
 
 
 @app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket) -> None:
+async def ws_endpoint(ws: WebSocket):
     token = (ws.query_params.get("token") or "").strip()
     if APP_TOKEN and token != APP_TOKEN:
-        # Policy violation
         await ws.close(code=1008)
         return
+
     await ws.accept()
     await hub.add(ws)
+
     try:
-        # Initial hello payload
         await ws.send_text(json.dumps({"type": "hello", "owner": OWNER_NAME}, ensure_ascii=False))
         while True:
-            # Keep connection alive. We don't require client messages.
             await ws.receive_text()
     except WebSocketDisconnect:
         pass
@@ -186,22 +203,19 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await hub.remove(ws)
 
 
+# --------------------------------------------------
+# Startup: Refresh Loop
+# --------------------------------------------------
 @app.on_event("startup")
-async def _startup() -> None:
-    # Serve PWA
-    if MOBILE_DIR.exists():
-        app.mount("/", StaticFiles(directory=str(MOBILE_DIR), html=True), name="mobile")
+async def startup_event():
 
     async def do_refresh(seq: int) -> dict:
-        # Guard against concurrent refresh storms
         global _inflight_refresh
-        if _inflight_refresh and not _inflight_refresh.done():
-            try:
-                return await asyncio.wait_for(_inflight_refresh, timeout=20.0)
-            except Exception:
-                pass
 
-        async def _work() -> dict:
+        if _inflight_refresh and not _inflight_refresh.done():
+            return await _inflight_refresh
+
+        async def work():
             data = await build_snapshot()
             return {
                 "type": "snapshot",
@@ -211,45 +225,34 @@ async def _startup() -> None:
                 "data": data,
             }
 
-        _inflight_refresh = asyncio.create_task(_work())
-        return await asyncio.wait_for(_inflight_refresh, timeout=25.0)
+        _inflight_refresh = asyncio.create_task(work())
+        return await _inflight_refresh
 
-    # Refresh loop (real snapshot). Manual refresh triggers immediate recalculation.
-    async def refresh_loop() -> None:
+    async def refresh_loop():
         i = 0
         while True:
             i += 1
             try:
                 payload = await do_refresh(i)
             except Exception as e:
-                # Keep last payload if data source fails, but still update heartbeat
                 payload = {
                     "type": "snapshot",
                     "seq": i,
                     "ts": int(time.time()),
                     "owner": OWNER_NAME,
-                    "data": {
-                        "indices": [],
-                        "themes": [],
-                        "stocks": [],
-                        "source": "error",
-                        "error": str(e),
-                    },
+                    "data": {"error": str(e)},
                 }
 
             async with _latest_lock:
                 global _latest_payload
                 _latest_payload = payload
-            # Optional push to connected clients
+
             await hub.broadcast(payload)
 
-            # Wait for either periodic refresh or manual refresh trigger
             try:
                 _refresh_now.clear()
-                await asyncio.wait_for(_refresh_now.wait(), timeout=max(5.0, AUTO_REFRESH_SEC))
+                await asyncio.wait_for(_refresh_now.wait(), timeout=AUTO_REFRESH_SEC)
             except asyncio.TimeoutError:
                 pass
 
     asyncio.create_task(refresh_loop())
-
-
