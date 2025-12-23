@@ -306,6 +306,17 @@ function startPolling() {
 function connect() {
   stop();
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
+  
+  // If no explicit server URL is set, skip WebSocket and go straight to polling
+  const savedUrl = localStorage.getItem("ls_server_url") || "";
+  if (!savedUrl || savedUrl.trim() === "") {
+    setBadge("badge--warn", "설정 필요");
+    setStatus("서버 URL을 설정하거나 현재 서버를 사용합니다.");
+    // Use current host and go straight to polling
+    startPolling();
+    return;
+  }
+  
   const url = wsUrlFromBase(baseUrl);
 
   setBadge("badge--warn", "연결 시도 중…");
