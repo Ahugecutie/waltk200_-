@@ -33,7 +33,7 @@ app = FastAPI(title="LeadingStock API", version="0.1.0")
 # ✅ 반드시 여기서 StaticFiles 등록
 if MOBILE_DIR.exists():
     app.mount(
-        "/",
+        "/app",
         StaticFiles(directory=str(MOBILE_DIR), html=True),
         name="mobile"
     )
