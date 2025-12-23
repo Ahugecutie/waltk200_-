@@ -284,14 +284,14 @@ function renderStockDetail(detail) {
   }
   
   // Pivot points
-  if (detail.pivot && detail.pivot.pivot) {
+  if (detail.pivot && detail.pivot !== null && detail.pivot.pivot !== null && detail.pivot.pivot !== undefined) {
     if (els.mPivot && els.mPivotSection) {
       els.mPivot.innerHTML = `
-        <div class="pivotItem pivotItem--resistance">2차 저항: ${fmtNum(detail.pivot.r2)}</div>
-        <div class="pivotItem pivotItem--resistance">1차 저항: ${fmtNum(detail.pivot.r1)}</div>
-        <div class="pivotItem pivotItem--pivot">Pivot: ${fmtNum(detail.pivot.pivot)}</div>
-        <div class="pivotItem pivotItem--support">1차 지지: ${fmtNum(detail.pivot.s1)}</div>
-        <div class="pivotItem pivotItem--support">2차 지지: ${fmtNum(detail.pivot.s2)}</div>
+        <div class="pivotItem pivotItem--resistance">2차 저항: ${fmtNum(detail.pivot.r2 || 0)}</div>
+        <div class="pivotItem pivotItem--resistance">1차 저항: ${fmtNum(detail.pivot.r1 || 0)}</div>
+        <div class="pivotItem pivotItem--pivot">Pivot: ${fmtNum(detail.pivot.pivot || 0)}</div>
+        <div class="pivotItem pivotItem--support">1차 지지: ${fmtNum(detail.pivot.s1 || 0)}</div>
+        <div class="pivotItem pivotItem--support">2차 지지: ${fmtNum(detail.pivot.s2 || 0)}</div>
       `;
       els.mPivotSection.style.display = "block";
     }
@@ -377,11 +377,16 @@ function renderStockDetail(detail) {
               const date = t.date || t.time || "";
               const institution = t.institution || t.inst || 0;
               const foreigner = t.foreigner || t.foreign || 0;
+              const fmtInvestor = (n) => {
+                if (n === 0) return "0";
+                const formatted = fmtNum(Math.abs(n));
+                return n > 0 ? `+${formatted}` : `-${formatted}`;
+              };
               return `
                 <tr>
                   <td>${date}</td>
-                  <td class="right">${fmtNum(institution)}</td>
-                  <td class="right">${fmtNum(foreigner)}</td>
+                  <td class="right">${fmtInvestor(institution)}</td>
+                  <td class="right">${fmtInvestor(foreigner)}</td>
                 </tr>
               `;
             }).join("")}
