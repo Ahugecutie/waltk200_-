@@ -21,4 +21,12 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Node.js / Capacitor
+node_modules/
+android/
+ios/
+.capacitor/
+*.apk
+*.aab
+
 
