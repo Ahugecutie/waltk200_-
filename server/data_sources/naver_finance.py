@@ -829,11 +829,22 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         
                         # Avoid duplicates
                         if not any(n.get("url") == full_url for n in news):
-                            news.append({
-                                "title": title,
-                                "date": date,
-                                "url": full_url,
-                            })
+                            # Ensure proper UTF-8 encoding for title
+                            try:
+                                # Clean title: remove any invalid characters
+                                title_clean = title.encode('utf-8', errors='ignore').decode('utf-8')
+                                news.append({
+                                    "title": title_clean,
+                                    "date": date,
+                                    "url": full_url,
+                                })
+                            except Exception:
+                                # Fallback: use original title
+                                news.append({
+                                    "title": title,
+                                    "date": date,
+                                    "url": full_url,
+                                })
                             if len(news) >= 5:  # Stop at 5 news items
                                 break
                 if len(news) >= 5:
@@ -877,11 +888,20 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         
                         # Avoid duplicates
                         if not any(n.get("url") == full_url for n in news):
-                            news.append({
-                                "title": title,
-                                "date": "",
-                                "url": full_url,
-                            })
+                            # Ensure proper UTF-8 encoding for title
+                            try:
+                                title_clean = title.encode('utf-8', errors='ignore').decode('utf-8')
+                                news.append({
+                                    "title": title_clean,
+                                    "date": "",
+                                    "url": full_url,
+                                })
+                            except Exception:
+                                news.append({
+                                    "title": title,
+                                    "date": "",
+                                    "url": full_url,
+                                })
                             if len(news) >= 5:
                                 break
             except Exception as e:
@@ -891,13 +911,13 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Financial summary (재무 요약) - parse from financial table
         # Try main page first (already loaded) for speed
         financials = []
-        # First try main page (already loaded)
-        fin_tables = soup.select("table.type_2, table.tb_type1, table.tb_type1_ifrs")
+        # First try main page (already loaded) - check all tables more thoroughly
+        fin_tables = soup.select("table.type_2, table.tb_type1, table.tb_type1_ifrs, table.sise")
         for table in fin_tables:
             headers = table.select("th")
             header_texts = [h.get_text(strip=True) for h in headers]
             has_sales = any("매출액" in h or "매출" in h for h in header_texts)
-            has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
+            has_profit = any("영업이익" in h or "영업" in h or "영업손익" in h for h in header_texts)
             
             if has_sales or has_profit:
                 rows = table.select("tr")
@@ -905,24 +925,31 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     tds = row.select("td")
                     if len(tds) >= 2:
                         period = tds[0].get_text(strip=True)
+                        # Skip if period is empty or looks like a header
+                        if not period or period in ["구분", "항목", "계정과목"]:
+                            continue
+                        
                         # Find sales and profit columns by matching headers
                         sales = 0.0
                         profit = 0.0
                         for i, header in enumerate(header_texts):
                             if i + 1 < len(tds):
-                                if "매출액" in header or "매출" in header:
+                                header_lower = header.lower()
+                                if "매출액" in header or "매출" in header or "매출원가" in header:
                                     sales = _to_float(tds[i + 1].get_text(strip=True))
-                                elif "영업이익" in header or "영업" in header:
+                                elif "영업이익" in header or "영업" in header or "영업손익" in header:
                                     profit = _to_float(tds[i + 1].get_text(strip=True))
                         
                         # Fallback: try positional parsing if header matching failed
                         if sales == 0 and profit == 0 and len(tds) >= 3:
+                            # Try common patterns: period, sales, profit
                             sales = _to_float(tds[1].get_text(strip=True))
                             profit = _to_float(tds[2].get_text(strip=True))
                         
-                        if period and (sales > 0 or profit != 0):
+                        # Accept if we have at least one valid value
+                        if period and period.strip() and (sales != 0 or profit != 0):
                             financials.append({
-                                "period": period,
+                                "period": period.strip(),
                                 "sales": sales,
                                 "operating_profit": profit,
                             })
@@ -990,12 +1017,12 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Investor trends (투자자별 매매동향) - parse from investor table
         # Try main page first (already loaded) for speed
         investor_trends = []
-        inv_tables = soup.select("table.type_2, table.tb_type1, table.type_1")
+        inv_tables = soup.select("table.type_2, table.tb_type1, table.type_1, table.sise")
         for table in inv_tables:
             headers = table.select("th")
             header_texts = [h.get_text(strip=True) for h in headers]
-            has_institution = any("기관" in h for h in header_texts)
-            has_foreigner = any("외국인" in h for h in header_texts)
+            has_institution = any("기관" in h or "기관투자자" in h for h in header_texts)
+            has_foreigner = any("외국인" in h or "외국인투자자" in h for h in header_texts)
             
             if has_institution and has_foreigner:
                 rows = table.select("tr")
@@ -1003,14 +1030,18 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     tds = row.select("td")
                     if len(tds) >= 2:
                         date = tds[0].get_text(strip=True)
+                        # Skip if date is empty or looks like a header
+                        if not date or date in ["날짜", "일자", "구분"]:
+                            continue
+                        
                         # Find institution and foreigner columns by matching headers
                         institution = 0
                         foreigner = 0
                         for i, header in enumerate(header_texts):
                             if i + 1 < len(tds):
-                                if "기관" in header:
+                                if "기관" in header or "기관투자자" in header:
                                     institution = _to_int(tds[i + 1].get_text(strip=True))
-                                elif "외국인" in header:
+                                elif "외국인" in header or "외국인투자자" in header:
                                     foreigner = _to_int(tds[i + 1].get_text(strip=True))
                         
                         # Fallback: try positional parsing if header matching failed
@@ -1018,9 +1049,10 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             institution = _to_int(tds[1].get_text(strip=True))
                             foreigner = _to_int(tds[2].get_text(strip=True))
                         
-                        if date:
+                        # Accept if we have a valid date (values can be 0)
+                        if date and date.strip():
                             investor_trends.append({
-                                "date": date,
+                                "date": date.strip(),
                                 "institution": institution,
                                 "foreigner": foreigner,
                             })
