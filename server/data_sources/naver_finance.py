@@ -193,6 +193,13 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
             continue
         code = m.group(1)
 
+        # Filter out ETN, ETF, and special stocks (스펙종목)
+        # ETN/ETF typically have names ending with "ETN", "ETF", or contain these keywords
+        # 스펙종목 typically have names containing "스펙", "스팩", or are marked with special indicators
+        name_upper = name.upper()
+        if any(keyword in name_upper for keyword in ["ETN", "ETF", "스펙", "스팩", "SPAC"]):
+            continue
+
         # Robust parsing: rely on known column positions and regex-based numeric extraction.
         price = _to_int(tds[2].get_text(" ", strip=True))
         change = _to_int(tds[3].get_text(" ", strip=True))
