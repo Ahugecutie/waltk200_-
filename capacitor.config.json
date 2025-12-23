@@ -1,0 +1,12 @@
+{
+  "appId": "com.leadingstock.app",
+  "appName": "주도주 탐색기",
+  "webDir": "mobile",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
+
