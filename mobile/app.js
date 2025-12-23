@@ -334,27 +334,36 @@ function renderStockDetail(detail) {
   // Investor trends
   if (detail.investor_trends && Array.isArray(detail.investor_trends) && detail.investor_trends.length > 0) {
     if (els.mInvestor && els.mInvestorSection) {
-    els.mInvestor.innerHTML = `
-      <table class="detailTable">
-        <thead>
-          <tr>
-            <th>날짜</th>
-            <th class="right">기관</th>
-            <th class="right">외국인</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${detail.investor_trends.map(t => `
+      els.mInvestor.innerHTML = `
+        <table class="detailTable">
+          <thead>
             <tr>
-              <td>${t.date || ""}</td>
-              <td class="right">${fmtNum(t.institution)}</td>
-              <td class="right">${fmtNum(t.foreigner)}</td>
+              <th>날짜</th>
+              <th class="right">기관</th>
+              <th class="right">외국인</th>
             </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-    els.mInvestorSection.style.display = "block";
+          </thead>
+          <tbody>
+            ${detail.investor_trends.map(t => {
+              const date = t.date || t.time || "";
+              const institution = t.institution || t.inst || 0;
+              const foreigner = t.foreigner || t.foreign || 0;
+              return `
+                <tr>
+                  <td>${date}</td>
+                  <td class="right">${fmtNum(institution)}</td>
+                  <td class="right">${fmtNum(foreigner)}</td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+        <div class="hint">* 단위: 천주 (순매수 기준)</div>
+      `;
+      els.mInvestorSection.style.display = "block";
+    }
+  } else if (els.mInvestorSection) {
+    els.mInvestorSection.style.display = "none";
   }
 }
 
