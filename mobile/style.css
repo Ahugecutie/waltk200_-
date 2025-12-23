@@ -135,8 +135,8 @@ body{
 .table tr:hover td{background:rgba(167,193,255,.06)}
 .right{text-align:right}
 .muted{color:var(--muted)}
-.up{color:#FF5A5F}
-.down{color:#4DA3FF}
+.up{color:#FF5A5F !important}
+.down{color:#4DA3FF !important}
 .clickable{cursor:pointer}
 
 .modal{
@@ -355,6 +355,14 @@ body{
     padding: 6px 0;
     border: none;
     font-size: 13px;
+  }
+
+  .table td.up {
+    color: #FF5A5F !important;
+  }
+
+  .table td.down {
+    color: #4DA3FF !important;
   }
 
   .table td::before {

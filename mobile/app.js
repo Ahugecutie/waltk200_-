@@ -582,19 +582,27 @@ async function fetchSnapshot() {
 }
 
 async function triggerRefresh() {
+  console.log("triggerRefresh called");
   setBadge("badge--warn", "갱신 중");
   setStatus("데이터를 갱신하고 있습니다…");
 
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
   const token = (localStorage.getItem("ls_token") || "").trim();
   const url = httpUrl(baseUrl, "/refresh");
+  console.log("Refresh URL:", url);
 
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: token ? { "X-App-Token": token } : undefined,
     });
-  } catch {}
+    console.log("Refresh response status:", res.status);
+    if (!res.ok) {
+      console.warn("Refresh failed:", res.status, res.statusText);
+    }
+  } catch (err) {
+    console.error("Refresh error:", err);
+  }
 
   await fetchSnapshot();
 }
@@ -685,15 +693,25 @@ function setupEventListeners() {
   }
   
   if (els.refreshBtn) {
-    els.refreshBtn.addEventListener("click", () => {
+    els.refreshBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log("Refresh button 1 clicked");
       triggerRefresh();
     });
+  } else {
+    console.warn("refreshBtn not found");
   }
   
   if (els.refreshBtn2) {
-    els.refreshBtn2.addEventListener("click", () => {
+    els.refreshBtn2.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log("Refresh button 2 clicked");
       triggerRefresh();
     });
+  } else {
+    console.warn("refreshBtn2 not found");
   }
   
   if (els.mClose) {
