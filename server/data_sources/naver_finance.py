@@ -788,20 +788,22 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             "div.news_list ul li a",
             "table.type_2 a[href*='news']",
             "div.cmp_news ul li a",
+            "a[href*='/item/news']",  # Direct news links
+            "a[href*='news.naver.com']",  # External news links
         ]
         for selector in news_selectors:
             news_items = soup.select(selector)
             if news_items:
-                for item in news_items[:10]:  # Check more items
+                for item in news_items[:15]:  # Check more items
                     title = item.get_text(strip=True)
                     href = item.get("href", "")
-                    # More lenient title filter
-                    if title and len(title) > 3 and not title.startswith("더보기"):
+                    # More lenient title filter - accept any meaningful title
+                    if title and len(title) > 2 and not any(skip in title for skip in ["더보기", "전체보기", "▼", "▲", "펼치기"]):
                         # Extract date
                         date = ""
                         parent = item.parent
                         if parent:
-                            date_el = parent.select_one("span.date, span.time, em.date, span.info, em.info")
+                            date_el = parent.select_one("span.date, span.time, em.date, span.info, em.info, span.txt")
                             if date_el:
                                 date = date_el.get_text(strip=True)
                             # Also check siblings
@@ -811,7 +813,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     break
                             # Check parent's parent for date
                             if not date and parent.parent:
-                                date_el = parent.parent.select_one("span.date, span.time, em.date, em.info")
+                                date_el = parent.parent.select_one("span.date, span.time, em.date, em.info, span.txt")
                                 if date_el:
                                     date = date_el.get_text(strip=True)
                         
@@ -836,6 +838,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 break
                 if len(news) >= 5:
                     break  # Found enough news, stop trying other selectors
+        
+        if news:
+            print(f"[{code}] Found {len(news)} news items")
+        else:
+            print(f"[{code}] No news found in main page")
         
         # If no news found, try fetching from news page (parallel fetch for speed)
         if not news:
@@ -885,23 +892,33 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Try main page first (already loaded) for speed
         financials = []
         # First try main page (already loaded)
-        fin_tables = soup.select("table.type_2, table.tb_type1")
+        fin_tables = soup.select("table.type_2, table.tb_type1, table.tb_type1_ifrs")
         for table in fin_tables:
             headers = table.select("th")
-            has_sales = any("매출액" in h.get_text() for h in headers)
-            has_profit = any("영업이익" in h.get_text() for h in headers)
+            header_texts = [h.get_text(strip=True) for h in headers]
+            has_sales = any("매출액" in h or "매출" in h for h in header_texts)
+            has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
             
             if has_sales or has_profit:
                 rows = table.select("tr")
                 for row in rows[1:]:  # Skip header
                     tds = row.select("td")
-                    if len(tds) >= 3:
+                    if len(tds) >= 2:
                         period = tds[0].get_text(strip=True)
-                        sales_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
-                        profit_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
+                        # Find sales and profit columns by matching headers
+                        sales = 0.0
+                        profit = 0.0
+                        for i, header in enumerate(header_texts):
+                            if i + 1 < len(tds):
+                                if "매출액" in header or "매출" in header:
+                                    sales = _to_float(tds[i + 1].get_text(strip=True))
+                                elif "영업이익" in header or "영업" in header:
+                                    profit = _to_float(tds[i + 1].get_text(strip=True))
                         
-                        sales = _to_float(sales_text)
-                        profit = _to_float(profit_text)
+                        # Fallback: try positional parsing if header matching failed
+                        if sales == 0 and profit == 0 and len(tds) >= 3:
+                            sales = _to_float(tds[1].get_text(strip=True))
+                            profit = _to_float(tds[2].get_text(strip=True))
                         
                         if period and (sales > 0 or profit != 0):
                             financials.append({
@@ -913,6 +930,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 break
                 if len(financials) > 0:
                     break
+        
+        if financials:
+            print(f"[{code}] Found {len(financials)} financial records")
+        else:
+            print(f"[{code}] No financial data found in main page")
         
         # Only try other pages if not found in main page (to speed up)
         if not financials:
@@ -968,23 +990,33 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Investor trends (투자자별 매매동향) - parse from investor table
         # Try main page first (already loaded) for speed
         investor_trends = []
-        inv_tables = soup.select("table.type_2, table.tb_type1")
+        inv_tables = soup.select("table.type_2, table.tb_type1, table.type_1")
         for table in inv_tables:
             headers = table.select("th")
-            has_institution = any("기관" in h.get_text() for h in headers)
-            has_foreigner = any("외국인" in h.get_text() for h in headers)
+            header_texts = [h.get_text(strip=True) for h in headers]
+            has_institution = any("기관" in h for h in header_texts)
+            has_foreigner = any("외국인" in h for h in header_texts)
             
             if has_institution and has_foreigner:
                 rows = table.select("tr")
                 for row in rows[1:]:  # Skip header
                     tds = row.select("td")
-                    if len(tds) >= 3:
+                    if len(tds) >= 2:
                         date = tds[0].get_text(strip=True)
-                        inst_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
-                        for_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
+                        # Find institution and foreigner columns by matching headers
+                        institution = 0
+                        foreigner = 0
+                        for i, header in enumerate(header_texts):
+                            if i + 1 < len(tds):
+                                if "기관" in header:
+                                    institution = _to_int(tds[i + 1].get_text(strip=True))
+                                elif "외국인" in header:
+                                    foreigner = _to_int(tds[i + 1].get_text(strip=True))
                         
-                        institution = _to_int(inst_text)
-                        foreigner = _to_int(for_text)
+                        # Fallback: try positional parsing if header matching failed
+                        if institution == 0 and foreigner == 0 and len(tds) >= 3:
+                            institution = _to_int(tds[1].get_text(strip=True))
+                            foreigner = _to_int(tds[2].get_text(strip=True))
                         
                         if date:
                             investor_trends.append({
@@ -996,6 +1028,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 break
                 if len(investor_trends) > 0:
                     break
+        
+        if investor_trends:
+            print(f"[{code}] Found {len(investor_trends)} investor trend records")
+        else:
+            print(f"[{code}] No investor trend data found in main page")
         
         # Only try other pages if not found in main page (to speed up)
         if not investor_trends:
