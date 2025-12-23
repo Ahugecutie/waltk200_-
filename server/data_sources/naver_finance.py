@@ -36,17 +36,37 @@ class RisingStock:
 
 
 def _to_int(s: str) -> int:
-    s = s.replace(",", "").strip()
+    """
+    Extract the first integer-like token from a mixed string.
+    Examples:
+      '상한가 3,520' -> 3520
+      '+1,234' -> 1234
+      '-' / 'N/A' -> 0
+    """
+    s = (s or "").strip()
     if s in ("", "-", "N/A"):
         return 0
-    return int(float(s))
+    m = re.search(r"[-+]?\d[\d,]*", s)
+    if not m:
+        return 0
+    return int(m.group(0).replace(",", "").replace("+", ""))
 
 
 def _to_float(s: str) -> float:
-    s = s.replace(",", "").replace("%", "").strip()
+    """
+    Extract the first float-like token from a mixed string.
+    Examples:
+      '+29.98%' -> 29.98
+      '전일비 1,234' -> 1234.0
+    """
+    s = (s or "").strip()
     if s in ("", "-", "N/A"):
         return 0.0
-    return float(s)
+    s = s.replace("%", "")
+    m = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", s)
+    if not m:
+        return 0.0
+    return float(m.group(0).replace(",", "").replace("+", ""))
 
 
 async def _get(client: httpx.AsyncClient, url: str) -> str:
@@ -105,7 +125,9 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
     out: List[RisingStock] = []
     for tr in rows:
         tds = tr.find_all("td")
-        if len(tds) < 10:
+        # Expected layout (type_2 / sise_rise):
+        # 0 rank, 1 name, 2 price, 3 change, 4 change%, 5 volume, 6 buy, 7 sell, 8 trade_value, 9 etc...
+        if len(tds) < 9:
             continue
         a = tr.select_one("a.tltle")
         if not a:
@@ -117,12 +139,12 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
             continue
         code = m.group(1)
 
-        # Columns typically: 종목명, 현재가, 전일비, 등락률, 거래량, 거래대금, ... (varies)
-        price = _to_int(tds[1].get_text())
-        change = _to_int(tds[2].get_text().replace("+", "").replace("▲", "").replace("△", ""))
-        change_pct = _to_float(tds[3].get_text())
-        volume = _to_int(tds[6].get_text()) if len(tds) > 6 else 0
-        trade_value = _to_int(tds[7].get_text()) if len(tds) > 7 else 0
+        # Robust parsing: rely on known column positions and regex-based numeric extraction.
+        price = _to_int(tds[2].get_text(" ", strip=True))
+        change = _to_int(tds[3].get_text(" ", strip=True))
+        change_pct = _to_float(tds[4].get_text(" ", strip=True))
+        volume = _to_int(tds[5].get_text(" ", strip=True))
+        trade_value = _to_int(tds[8].get_text(" ", strip=True)) if len(tds) > 8 else 0
 
         out.append(
             RisingStock(
