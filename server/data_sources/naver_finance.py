@@ -36,6 +36,34 @@ class RisingStock:
     market: str  # "KOSPI" | "KOSDAQ"
 
 
+@dataclass
+class StockDetail:
+    code: str
+    name: str
+    price: int
+    change: int
+    change_pct: float
+    volume: int
+    trade_value: int
+    market: str
+    # Pivot data
+    pivot: Optional[float] = None
+    r1: Optional[float] = None  # 1차 저항
+    r2: Optional[float] = None  # 2차 저항
+    s1: Optional[float] = None  # 1차 지지
+    s2: Optional[float] = None  # 2차 지지
+    # Previous day data for pivot calculation
+    prev_high: Optional[float] = None
+    prev_low: Optional[float] = None
+    prev_close: Optional[float] = None
+    # News
+    news: Optional[List[dict]] = None  # [{"title": str, "date": str, "url": str}]
+    # Financial summary
+    financials: Optional[List[dict]] = None  # [{"period": str, "sales": float, "operating_profit": float}]
+    # Investor trends
+    investor_trends: Optional[List[dict]] = None  # [{"date": str, "institution": int, "foreigner": int}]
+
+
 def _to_int(s: str) -> int:
     """
     Extract the first integer-like token from a mixed string.
@@ -397,5 +425,247 @@ async def build_snapshot() -> dict:
         ],
         "source": "naver_finance",
     }
+
+
+def calculate_pivot_points(high: float, low: float, close: float) -> dict:
+    """
+    Calculate Pivot Point and support/resistance levels.
+    Standard pivot point formula:
+    - Pivot = (High + Low + Close) / 3
+    - R1 = 2 * Pivot - Low
+    - R2 = Pivot + (High - Low)
+    - S1 = 2 * Pivot - High
+    - S2 = Pivot - (High - Low)
+    """
+    pivot = (high + low + close) / 3
+    r1 = 2 * pivot - low
+    r2 = pivot + (high - low)
+    s1 = 2 * pivot - high
+    s2 = pivot - (high - low)
+    return {
+        "pivot": round(pivot, 0),
+        "r1": round(r1, 0),
+        "r2": round(r2, 0),
+        "s1": round(s1, 0),
+        "s2": round(s2, 0),
+    }
+
+
+async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[StockDetail]:
+    """
+    Fetch detailed information for a specific stock from Naver Finance.
+    Includes: pivot points, news, financials, investor trends.
+    """
+    try:
+        # Main stock page
+        html = await _get(client, f"https://finance.naver.com/item/main.naver?code={code}")
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Basic info
+        name_el = soup.select_one("h2.wrap_company a")
+        name = name_el.get_text(strip=True) if name_el else ""
+        
+        # Current price and change
+        no_today = soup.select_one("p.no_today")
+        price = 0
+        change = 0
+        change_pct = 0.0
+        if no_today:
+            price_el = no_today.select_one("span.blind")
+            if price_el:
+                price = _to_int(price_el.get_text(strip=True))
+            
+            # Change
+            change_el = soup.select_one("span.blind.sptxt")
+            if change_el:
+                change_text = change_el.find_next_sibling()
+                if change_text:
+                    change = _to_int(change_text.get_text(strip=True))
+                    # Determine sign from parent class
+                    parent = change_el.parent
+                    if parent and "down" in parent.get("class", []):
+                        change = -abs(change)
+            
+            # Change percentage
+            pct_el = soup.select_one("span.blind.sptxt")
+            if pct_el:
+                pct_text = pct_el.find_next_sibling()
+                if pct_text:
+                    change_pct = _to_float(pct_text.get_text(strip=True))
+                    if change < 0:
+                        change_pct = -abs(change_pct)
+        
+        # Volume and trade value
+        volume_el = soup.select_one("td span.blind")
+        volume = 0
+        trade_value = 0
+        # Try to find volume in the summary table
+        summary_table = soup.select_one("table.type_2")
+        if summary_table:
+            rows = summary_table.select("tr")
+            for row in rows:
+                th = row.select_one("th")
+                if th and "거래량" in th.get_text():
+                    td = row.select_one("td")
+                    if td:
+                        volume = _to_int(td.get_text(strip=True))
+                elif th and "거래대금" in th.get_text():
+                    td = row.select_one("td")
+                    if td:
+                        trade_value = _to_int(td.get_text(strip=True))
+        
+        # Market detection (KOSPI vs KOSDAQ)
+        market = "KOSPI"
+        if "코스닥" in html or "kosdaq" in html.lower():
+            market = "KOSDAQ"
+        
+        # Previous day data for pivot (고가/저가/종가)
+        prev_high = None
+        prev_low = None
+        prev_close = None
+        # Try to find in summary table
+        if summary_table:
+            rows = summary_table.select("tr")
+            for row in rows:
+                th = row.select_one("th")
+                if th:
+                    th_text = th.get_text(strip=True)
+                    td = row.select_one("td")
+                    if td:
+                        td_text = td.get_text(strip=True)
+                        if "전일" in th_text and "고가" in th_text:
+                            prev_high = _to_float(td_text)
+                        elif "전일" in th_text and "저가" in th_text:
+                            prev_low = _to_float(td_text)
+                        elif "전일" in th_text and "종가" in th_text:
+                            prev_close = _to_float(td_text)
+        
+        # Calculate pivot points if we have previous day data
+        pivot_data = None
+        if prev_high and prev_low and prev_close:
+            pivot_data = calculate_pivot_points(prev_high, prev_low, prev_close)
+        
+        # Fetch news from news section
+        news = []
+        # Try multiple selectors for news
+        news_selectors = [
+            "div.news_area ul li a",
+            "div#news ul li a",
+            "table.news_table a",
+            "div.section.news ul li a",
+        ]
+        for selector in news_selectors:
+            news_items = soup.select(selector)
+            if news_items:
+                for item in news_items[:5]:  # Top 5 news
+                    title = item.get_text(strip=True)
+                    href = item.get("href", "")
+                    if title and len(title) > 5:  # Filter out very short titles
+                        # Extract date
+                        date = ""
+                        parent = item.parent
+                        if parent:
+                            date_el = parent.select_one("span.date, span.time, em.date")
+                            if date_el:
+                                date = date_el.get_text(strip=True)
+                            # Also check siblings
+                            for sibling in parent.find_next_siblings():
+                                if sibling.name == "span" and "date" in sibling.get("class", []):
+                                    date = sibling.get_text(strip=True)
+                                    break
+                        
+                        full_url = f"https://finance.naver.com{href}" if href.startswith("/") else (href if href.startswith("http") else f"https://finance.naver.com/{href}")
+                        news.append({
+                            "title": title,
+                            "date": date,
+                            "url": full_url,
+                        })
+                break  # Found news, stop trying other selectors
+        
+        # Financial summary (재무 요약) - parse from financial table
+        financials = []
+        # Look for financial summary table
+        fin_tables = soup.select("table.type_2, table.tb_type1")
+        for table in fin_tables:
+            # Check if this table contains financial data
+            headers = table.select("th")
+            has_sales = any("매출액" in h.get_text() for h in headers)
+            has_profit = any("영업이익" in h.get_text() for h in headers)
+            
+            if has_sales or has_profit:
+                rows = table.select("tr")
+                for row in rows[1:]:  # Skip header
+                    tds = row.select("td")
+                    if len(tds) >= 3:
+                        period = tds[0].get_text(strip=True)
+                        sales_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
+                        profit_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
+                        
+                        sales = _to_float(sales_text)
+                        profit = _to_float(profit_text)
+                        
+                        if period and (sales > 0 or profit != 0):
+                            financials.append({
+                                "period": period,
+                                "sales": sales,
+                                "operating_profit": profit,
+                            })
+                            if len(financials) >= 3:  # Recent 3 periods
+                                break
+        
+        # Investor trends (투자자별 매매동향) - parse from investor table
+        investor_trends = []
+        # Look for investor trading table
+        inv_tables = soup.select("table.type_2, table.tb_type1")
+        for table in inv_tables:
+            headers = table.select("th")
+            has_institution = any("기관" in h.get_text() for h in headers)
+            has_foreigner = any("외국인" in h.get_text() for h in headers)
+            
+            if has_institution and has_foreigner:
+                rows = table.select("tr")
+                for row in rows[1:]:  # Skip header
+                    tds = row.select("td")
+                    if len(tds) >= 3:
+                        date = tds[0].get_text(strip=True)
+                        inst_text = tds[1].get_text(strip=True) if len(tds) > 1 else "0"
+                        for_text = tds[2].get_text(strip=True) if len(tds) > 2 else "0"
+                        
+                        institution = _to_int(inst_text)
+                        foreigner = _to_int(for_text)
+                        
+                        if date:
+                            investor_trends.append({
+                                "date": date,
+                                "institution": institution,
+                                "foreigner": foreigner,
+                            })
+                            if len(investor_trends) >= 5:  # Recent 5 days
+                                break
+        
+        return StockDetail(
+            code=code,
+            name=name,
+            price=price,
+            change=change,
+            change_pct=change_pct,
+            volume=volume,
+            trade_value=trade_value,
+            market=market,
+            pivot=pivot_data["pivot"] if pivot_data else None,
+            r1=pivot_data["r1"] if pivot_data else None,
+            r2=pivot_data["r2"] if pivot_data else None,
+            s1=pivot_data["s1"] if pivot_data else None,
+            s2=pivot_data["s2"] if pivot_data else None,
+            prev_high=prev_high,
+            prev_low=prev_low,
+            prev_close=prev_close,
+            news=news if news else [],
+            financials=financials,
+            investor_trends=investor_trends,
+        )
+    except Exception as e:
+        print(f"Error fetching stock detail for {code}: {e}")
+        return None
 
 

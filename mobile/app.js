@@ -29,8 +29,16 @@ function initElements() {
     mPills: document.getElementById("mPills"),
     mSignals: document.getElementById("mSignals"),
     mLink: document.getElementById("mLink"),
-    mAi: document.getElementById("mAi"),
-    mClose: document.getElementById("mClose"),
+  mAi: document.getElementById("mAi"),
+  mClose: document.getElementById("mClose"),
+  mPivotSection: document.getElementById("mPivotSection"),
+  mPivot: document.getElementById("mPivot"),
+  mNewsSection: document.getElementById("mNewsSection"),
+  mNews: document.getElementById("mNews"),
+  mFinancialSection: document.getElementById("mFinancialSection"),
+  mFinancial: document.getElementById("mFinancial"),
+  mInvestorSection: document.getElementById("mInvestorSection"),
+  mInvestor: document.getElementById("mInvestor"),
   };
   
   // Verify critical elements exist
@@ -172,7 +180,7 @@ function renderThemes(themes) {
   els.themesList.innerHTML = themes.slice(0, 5).map((t) => `<li>${t.name ?? t}</li>`).join("");
 }
 
-function openModal(stock) {
+async function openModal(stock) {
   els.mTitle.textContent = `${stock.name} (${stock.code})`;
   els.mSub.textContent = `${stock.market ?? ""} · 현재가 ${fmtNum(stock.price)}원 · ${fmtPct(stock.change_pct)}`;
   els.mPills.innerHTML = "";
@@ -207,7 +215,114 @@ function openModal(stock) {
   // Ensure ai_opinion is properly displayed
   const aiText = stock?.ai_opinion || "";
   els.mAi.textContent = aiText || "추후 기존 EXE 로직과 동일하게 연결됩니다.";
+  
+  // Hide detail sections initially
+  if (els.mPivotSection) els.mPivotSection.style.display = "none";
+  if (els.mNewsSection) els.mNewsSection.style.display = "none";
+  if (els.mFinancialSection) els.mFinancialSection.style.display = "none";
+  if (els.mInvestorSection) els.mInvestorSection.style.display = "none";
+  
+  // Show modal first
   if (typeof els.modal.showModal === "function") els.modal.showModal();
+  
+  // Fetch detailed information
+  try {
+    const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
+    const token = (localStorage.getItem("ls_token") || "").trim();
+    const detailUrl = httpUrl(baseUrl, `/stock/${stock.code}`);
+    
+    const res = await fetch(detailUrl, {
+      headers: token ? { "X-App-Token": token } : undefined,
+      cache: "no-store",
+    });
+    
+    if (res.ok) {
+      const result = await res.json();
+      if (result.ok && result.data) {
+        renderStockDetail(result.data);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch stock detail:", err);
+  }
+}
+
+function renderStockDetail(detail) {
+  // Pivot points
+  if (detail.pivot && detail.pivot.pivot) {
+    if (els.mPivot && els.mPivotSection) {
+      els.mPivot.innerHTML = `
+        <div class="pivotItem pivotItem--resistance">2차 저항: ${fmtNum(detail.pivot.r2)}</div>
+        <div class="pivotItem pivotItem--resistance">1차 저항: ${fmtNum(detail.pivot.r1)}</div>
+        <div class="pivotItem pivotItem--pivot">Pivot: ${fmtNum(detail.pivot.pivot)}</div>
+        <div class="pivotItem pivotItem--support">1차 지지: ${fmtNum(detail.pivot.s1)}</div>
+        <div class="pivotItem pivotItem--support">2차 지지: ${fmtNum(detail.pivot.s2)}</div>
+      `;
+      els.mPivotSection.style.display = "block";
+    }
+  }
+  
+  // News
+  if (detail.news && detail.news.length > 0 && els.mNews && els.mNewsSection) {
+    els.mNews.innerHTML = detail.news.map(n => `
+      <div class="newsItem">
+        <a href="${n.url || "#"}" target="_blank" rel="noreferrer" class="newsLink">${n.title || ""}</a>
+        ${n.date ? `<span class="newsDate">${n.date}</span>` : ""}
+      </div>
+    `).join("");
+    els.mNewsSection.style.display = "block";
+  }
+  
+  // Financials
+  if (detail.financials && detail.financials.length > 0 && els.mFinancial && els.mFinancialSection) {
+    els.mFinancial.innerHTML = `
+      <table class="detailTable">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th class="right">매출액</th>
+            <th class="right">영업이익</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${detail.financials.map(f => `
+            <tr>
+              <td>${f.period || "Recent"}</td>
+              <td class="right">${fmtNum(f.sales)}</td>
+              <td class="right">${fmtNum(f.operating_profit)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <div class="hint">* 단위: 억원 (네이버 금융 기준)</div>
+    `;
+    els.mFinancialSection.style.display = "block";
+  }
+  
+  // Investor trends
+  if (detail.investor_trends && detail.investor_trends.length > 0 && els.mInvestor && els.mInvestorSection) {
+    els.mInvestor.innerHTML = `
+      <table class="detailTable">
+        <thead>
+          <tr>
+            <th>날짜</th>
+            <th class="right">기관</th>
+            <th class="right">외국인</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${detail.investor_trends.map(t => `
+            <tr>
+              <td>${t.date || ""}</td>
+              <td class="right">${fmtNum(t.institution)}</td>
+              <td class="right">${fmtNum(t.foreigner)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+    els.mInvestorSection.style.display = "block";
+  }
 }
 
 function renderStocks(stocks) {

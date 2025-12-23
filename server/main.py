@@ -11,7 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.data_sources.naver_finance import build_snapshot
+from server.data_sources.naver_finance import build_snapshot, fetch_stock_detail
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -62,6 +62,51 @@ async def refresh(request: Request) -> JSONResponse:
     # Triggers an immediate refresh cycle (best-effort).
     _refresh_now.set()
     return JSONResponse({"ok": True, "ts": int(time.time())})
+
+
+@app.get("/stock/{code}")
+async def stock_detail(code: str, request: Request) -> JSONResponse:
+    """
+    Get detailed information for a specific stock.
+    Includes: pivot points, news, financials, investor trends.
+    """
+    token = (request.headers.get("X-App-Token") or "").strip()
+    if APP_TOKEN and token != APP_TOKEN:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    
+    import httpx
+    async with httpx.AsyncClient(headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "ko-KR,ko;q=0.9"
+    }) as client:
+        detail = await fetch_stock_detail(client, code)
+    
+    if not detail:
+        return JSONResponse({"ok": False, "error": "stock not found"}, status_code=404)
+    
+    # Convert to dict for JSON response
+    result = {
+        "code": detail.code,
+        "name": detail.name,
+        "price": detail.price,
+        "change": detail.change,
+        "change_pct": detail.change_pct,
+        "volume": detail.volume,
+        "trade_value": detail.trade_value,
+        "market": detail.market,
+        "pivot": {
+            "pivot": detail.pivot,
+            "r1": detail.r1,
+            "r2": detail.r2,
+            "s1": detail.s1,
+            "s2": detail.s2,
+        } if detail.pivot else None,
+        "news": detail.news or [],
+        "financials": detail.financials or [],
+        "investor_trends": detail.investor_trends or [],
+    }
+    
+    return JSONResponse({"ok": True, "data": result})
 
 
 class Hub:
