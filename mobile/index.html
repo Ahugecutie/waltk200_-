@@ -12,11 +12,14 @@
     <main class="app">
       <div class="top">
         <div class="brand">주도주 탐색기</div>
-        <div class="badge badge--warn" id="statusBadge">연결 시도 중…</div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="settingsBtn" class="iconBtn iconBtn--small" aria-label="설정" title="서버 설정">⚙</button>
+          <div class="badge badge--warn" id="statusBadge">연결 시도 중…</div>
+        </div>
       </div>
       <div class="status" id="statusText">서버에 연결을 시도합니다…</div>
       
-      <section class="card card--collapsible" id="serverConfigCard">
+      <section class="card card--collapsible" id="serverConfigCard" style="display: none;">
         <div class="card-header" id="serverConfigToggle">
           <h2 class="subtitle">서버 설정</h2>
           <span class="toggle-icon">▼</span>

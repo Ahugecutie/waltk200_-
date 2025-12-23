@@ -16,6 +16,7 @@ function initElements() {
     refreshBtn: document.getElementById("refreshBtn"),
     refreshBtn2: document.getElementById("refreshBtn2"),
     clearBtn: document.getElementById("clearBtn"),
+    settingsBtn: document.getElementById("settingsBtn"),
     serverConfigCard: document.getElementById("serverConfigCard"),
     serverConfigToggle: document.getElementById("serverConfigToggle"),
     serverConfigContent: document.getElementById("serverConfigContent"),
@@ -567,7 +568,28 @@ function setupEventListeners() {
     });
   }
   
-  // Server config toggle
+  // Settings button - show/hide server config card
+  if (els.settingsBtn && els.serverConfigCard) {
+    els.settingsBtn.addEventListener("click", () => {
+      const isVisible = els.serverConfigCard.style.display !== "none";
+      if (isVisible) {
+        els.serverConfigCard.style.display = "none";
+      } else {
+        els.serverConfigCard.style.display = "block";
+        // Expand content when showing
+        if (els.serverConfigContent) {
+          els.serverConfigContent.style.display = "block";
+        }
+        if (els.serverConfigCard) {
+          els.serverConfigCard.classList.remove("collapsed");
+        }
+        // Scroll to config card
+        els.serverConfigCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  }
+  
+  // Server config toggle (internal expand/collapse)
   if (els.serverConfigToggle && els.serverConfigContent) {
     els.serverConfigToggle.addEventListener("click", () => {
       const isCollapsed = els.serverConfigCard.classList.contains("collapsed");
@@ -579,13 +601,12 @@ function setupEventListeners() {
         els.serverConfigContent.style.display = "none";
       }
     });
-    
-    // Initially collapse if server URL is already set
-    const savedUrl = localStorage.getItem("ls_server_url") || "";
-    if (savedUrl.trim()) {
-      els.serverConfigCard.classList.add("collapsed");
-      els.serverConfigContent.style.display = "none";
-    }
+  }
+  
+  // Initially hide server config card if server URL is already set
+  const savedUrl = localStorage.getItem("ls_server_url") || "";
+  if (savedUrl.trim() && els.serverConfigCard) {
+    els.serverConfigCard.style.display = "none";
   }
   
   window.addEventListener("online", () => connect());
