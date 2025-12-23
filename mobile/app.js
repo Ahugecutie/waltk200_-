@@ -218,35 +218,66 @@ function renderStocks(stocks) {
 }
 
 function renderSnapshot(obj) {
-  // Keep debug json
-  els.lastPayload.textContent = JSON.stringify(obj, null, 2);
-  const data = obj?.data || {};
-  const indices = Array.isArray(data.indices) ? data.indices : [];
-  const kospi = indices.find((x) => (x.name || "").toUpperCase() === "KOSPI");
-  const kosdaq = indices.find((x) => (x.name || "").toUpperCase() === "KOSDAQ");
-  setIndexBox("kospi", kospi);
-  setIndexBox("kosdaq", kosdaq);
-  renderThemes(data.themes);
-  renderStocks(data.stocks);
+  try {
+    // Keep debug json
+    els.lastPayload.textContent = JSON.stringify(obj, null, 2);
+    const data = obj?.data || {};
+    const indices = Array.isArray(data.indices) ? data.indices : [];
+    const kospi = indices.find((x) => (x.name || "").toUpperCase() === "KOSPI");
+    const kosdaq = indices.find((x) => (x.name || "").toUpperCase() === "KOSDAQ");
+    setIndexBox("kospi", kospi);
+    setIndexBox("kosdaq", kosdaq);
+    renderThemes(data.themes);
+    renderStocks(data.stocks);
+  } catch (err) {
+    console.error("renderSnapshot error:", err);
+    els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">데이터 렌더링 오류가 발생했습니다.</td></tr>`;
+  }
 }
 
 async function fetchSnapshot() {
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
   const token = (localStorage.getItem("ls_token") || "").trim();
+  
+  // Check if server URL is configured
+  const savedUrl = localStorage.getItem("ls_server_url") || "";
+  if (!savedUrl || savedUrl.trim() === "") {
+    setBadge("badge--warn", "설정 필요");
+    setStatus("서버 URL을 설정해주세요.");
+    if (els.stocksTbody) {
+      els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">서버 URL이 설정되지 않았습니다.</td></tr>`;
+    }
+    return false;
+  }
+  
   const snapUrl = httpUrl(baseUrl, "/snapshot");
+  
+  // Create timeout manually for better compatibility
+  const timeoutId = setTimeout(() => {
+    throw new Error("Request timeout");
+  }, 15000);
+  
   try {
     const res = await fetch(snapUrl, {
       headers: token ? { "X-App-Token": token } : undefined,
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(String(res.status));
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const obj = await res.json();
+    if (!obj || !obj.data) throw new Error("Invalid response format");
     renderSnapshot(obj);
     setBadge("badge--ok", "연결됨");
     setStatus("데이터를 수신했습니다.");
     return true;
-  } catch {
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.error("fetchSnapshot error:", err);
     showServerDown();
+    // Ensure table shows error state
+    if (els.stocksTbody && els.stocksTbody.innerHTML.includes("데이터를 불러오는 중")) {
+      els.stocksTbody.innerHTML = `<tr><td colspan="5" class="muted">서버 연결 실패. 다시 시도해주세요.</td></tr>`;
+    }
     return false;
   }
 }
