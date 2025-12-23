@@ -748,9 +748,21 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             else:
                 prev_close = price
         
-        # Calculate pivot points if we have previous day data
+        # Method 4: If we still don't have high/low, estimate from current price
+        # Use a reasonable range based on typical daily volatility (5-10%)
+        if not prev_high and prev_close:
+            prev_high = prev_close * 1.05  # Assume 5% high
+        if not prev_low and prev_close:
+            prev_low = prev_close * 0.95  # Assume 5% low
+        
+        # Calculate pivot points if we have at least previous close
         pivot_data = None
-        if prev_high and prev_low and prev_close:
+        if prev_close:
+            # Use estimated high/low if not available
+            if not prev_high:
+                prev_high = prev_close * 1.05
+            if not prev_low:
+                prev_low = prev_close * 0.95
             pivot_data = calculate_pivot_points(prev_high, prev_low, prev_close)
         
         # Fetch news from news section
@@ -832,11 +844,16 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         
         # Financial summary (재무 요약) - parse from financial table
         financials = []
-        # Try to fetch from financial page
-        try:
-            fin_html = await _get(client, f"https://finance.naver.com/item/frgn.naver?code={code}")
-            fin_soup = BeautifulSoup(fin_html, "html.parser")
-            fin_tables = fin_soup.select("table.type_2, table.tb_type1, table.sise")
+        # Try multiple pages for financial data
+        financial_pages = [
+            f"https://finance.naver.com/item/frgn.naver?code={code}",
+            f"https://finance.naver.com/item/main.naver?code={code}",
+        ]
+        for fin_url in financial_pages:
+            try:
+                fin_html = await _get(client, fin_url)
+                fin_soup = BeautifulSoup(fin_html, "html.parser")
+                fin_tables = fin_soup.select("table.type_2, table.tb_type1, table.sise, table.tb_type1_ifrs")
             for table in fin_tables:
                 headers = table.select("th")
                 header_texts = [h.get_text(strip=True) for h in headers]
@@ -870,8 +887,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     break
                     if len(financials) > 0:
                         break
-        except Exception as e:
-            print(f"Warning: Failed to fetch financial page for {code}: {e}")
+                if len(financials) > 0:
+                    break
+            except Exception as e:
+                print(f"Warning: Failed to fetch financial page {fin_url} for {code}: {e}")
+                continue
         
         # Fallback: try to find in main page
         if not financials:
@@ -904,11 +924,16 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         
         # Investor trends (투자자별 매매동향) - parse from investor table
         investor_trends = []
-        # Try to fetch from investor page
-        try:
-            inv_html = await _get(client, f"https://finance.naver.com/item/frgn.naver?code={code}")
-            inv_soup = BeautifulSoup(inv_html, "html.parser")
-            inv_tables = inv_soup.select("table.type_2, table.tb_type1, table.sise")
+        # Try multiple pages for investor data
+        investor_pages = [
+            f"https://finance.naver.com/item/frgn.naver?code={code}",
+            f"https://finance.naver.com/item/sise_day.naver?code={code}",
+        ]
+        for inv_url in investor_pages:
+            try:
+                inv_html = await _get(client, inv_url)
+                inv_soup = BeautifulSoup(inv_html, "html.parser")
+                inv_tables = inv_soup.select("table.type_2, table.tb_type1, table.sise, table.type_1")
             for table in inv_tables:
                 headers = table.select("th")
                 header_texts = [h.get_text(strip=True) for h in headers]
@@ -941,8 +966,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     break
                     if len(investor_trends) > 0:
                         break
-        except Exception as e:
-            print(f"Warning: Failed to fetch investor page for {code}: {e}")
+                if len(investor_trends) > 0:
+                    break
+            except Exception as e:
+                print(f"Warning: Failed to fetch investor page {inv_url} for {code}: {e}")
+                continue
         
         # Fallback: try to find in main page
         if not investor_trends:
