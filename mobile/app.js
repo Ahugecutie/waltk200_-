@@ -450,11 +450,11 @@ function renderStocks(stocks) {
     const pct = Number(s.change_pct || 0);
     const pctCls = pct >= 0 ? "up" : "down";
     tr.innerHTML = `
-      <td>${s.name}</td>
-      <td class="right">${fmtNum(s.price)}</td>
-      <td class="right ${pctCls}">${fmtPct(pct)}</td>
-      <td class="right">${fmtNum(s.trade_value)}</td>
-      <td class="right">${fmtNum(s.score)}</td>
+      <td data-label="종목명">${s.name}</td>
+      <td class="right" data-label="현재가">${fmtNum(s.price)}</td>
+      <td class="right ${pctCls}" data-label="등락률">${fmtPct(pct)}</td>
+      <td class="right" data-label="거래대금">${fmtNum(s.trade_value)}</td>
+      <td class="right" data-label="Score">${fmtNum(s.score)}</td>
     `;
     tr.addEventListener("click", () => openModal(currentStocks[idx]));
     els.stocksTbody.appendChild(tr);
@@ -569,15 +569,20 @@ async function fetchSnapshot() {
 }
 
 async function triggerRefresh() {
+  setBadge("badge--warn", "갱신 중");
+  setStatus("데이터를 갱신하고 있습니다…");
+
   const baseUrl = normalizeBaseUrl(localStorage.getItem("ls_server_url") || "");
   const token = (localStorage.getItem("ls_token") || "").trim();
   const url = httpUrl(baseUrl, "/refresh");
+
   try {
     await fetch(url, {
       method: "POST",
       headers: token ? { "X-App-Token": token } : undefined,
     });
   } catch {}
+
   await fetchSnapshot();
 }
 

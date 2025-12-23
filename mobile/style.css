@@ -298,7 +298,73 @@ body{
 
 @media (max-width:420px){
   .grid2{grid-template-columns:1fr}
-  .table{min-width:460px}
+  
+  /* 상단 상태 문구 */
+  #statusText {
+    display: none !important;
+  }
+
+  /* 서버 설정 카드 */
+  #serverConfigCard {
+    display: none !important;
+  }
+
+  /* 최근 수신(JSON 디버그) */
+  #lastPayload,
+  .mono,
+  section.card > .subtitle {
+    display: none !important;
+  }
+
+  /* 테이블 가로 스크롤 제거 */
+  .table {
+    min-width: 100% !important;
+  }
+
+  /* 테이블을 카드형 리스트로 변환 */
+  .table thead {
+    display: none;
+  }
+
+  .table tr {
+    display: block;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    background: rgba(0,0,0,.14);
+  }
+
+  .table td {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border: none;
+    font-size: 13px;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 12px;
+    margin-right: 8px;
+  }
+
+  /* 모바일에서 Score 컬럼 숨기기 */
+  .table td:last-child,
+  .table th:last-child {
+    display: none;
+  }
+
+  /* 테마 영역 폰트 조정 */
+  .list li {
+    padding: 8px 0;
+    font-size: 14px;
+  }
+
+  .title {
+    font-size: 16px;
+  }
 }
 
 .hint{
