@@ -326,13 +326,36 @@ async def build_snapshot() -> dict:
         return sigs[:6]
 
     def ai_opinion_for(s: RisingStock) -> str:
-        # Lightweight rule-based placeholder (no external AI calls)
+        """
+        Generate AI investment opinion based on stock characteristics.
+        Refined to provide more nuanced advice matching original EXE.
+        """
+        # Limit-up scenario
         if s.change_pct >= 29.8:
-            return "상한가 구간입니다. 추격매수는 위험하며, 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요."
+            if s.trade_value >= 200000:
+                return "상한가 구간입니다. 거래대금이 폭발적으로 증가했으나, 추격매수는 위험합니다. 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요."
+            else:
+                return "상한가 구간입니다. 추격매수는 위험하며, 보유자는 변동성에 대비해 분할 청산/손절 기준을 명확히 하세요."
+        
+        # Strong breakout (20%+)
         if s.change_pct >= 20:
-            return "급등 구간입니다. 거래대금과 추가 수급 유입을 확인하면서, 손절 라인을 먼저 정하는 것이 좋습니다."
+            if s.trade_value >= 200000:
+                return "급등 구간입니다. 거래대금이 크게 증가했으며, 추가 수급 유입을 확인하면서 손절 라인을 먼저 정하는 것이 좋습니다."
+            else:
+                return "급등 구간입니다. 거래대금과 추가 수급 유입을 확인하면서, 손절 라인을 먼저 정하는 것이 좋습니다."
+        
+        # Pullback opportunity (12%+)
         if s.change_pct >= 12:
-            return "강세 흐름입니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요."
+            if s.volume >= 10000000:
+                return "강세 흐름입니다. 거래량이 활발하며, 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요."
+            else:
+                return "강세 흐름입니다. 눌림 구간에서 분할 진입을 고려하되, 거래대금이 유지되는지 확인하세요."
+        
+        # Moderate movement
+        if s.change_pct >= 5:
+            return "중간 강세입니다. 뉴스와 수급 변화를 지속적으로 모니터링하며, 추세가 지속되는지 확인하세요."
+        
+        # Low volatility
         return "단기 변동성이 낮은 편입니다. 뉴스/수급 변화를 확인하며 보수적으로 접근하세요."
 
     return {
