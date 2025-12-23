@@ -251,9 +251,13 @@ async function openModal(stock) {
 }
 
 function renderStockDetail(detail) {
+  console.log("Rendering stock detail:", detail); // Debug log
+  
   // Update AI opinion with enhanced detail (if available)
   if (detail.ai_opinion && els.mAi) {
     els.mAi.textContent = detail.ai_opinion;
+  } else if (els.mAi) {
+    els.mAi.textContent = "분석 중...";
   }
   
   // Pivot points
@@ -268,47 +272,68 @@ function renderStockDetail(detail) {
       `;
       els.mPivotSection.style.display = "block";
     }
+  } else if (els.mPivotSection) {
+    els.mPivotSection.style.display = "none";
   }
   
   // News
-  if (detail.news && detail.news.length > 0 && els.mNews && els.mNewsSection) {
-    els.mNews.innerHTML = detail.news.map(n => `
-      <div class="newsItem">
-        <a href="${n.url || "#"}" target="_blank" rel="noreferrer" class="newsLink">${n.title || ""}</a>
-        ${n.date ? `<span class="newsDate">${n.date}</span>` : ""}
-      </div>
-    `).join("");
-    els.mNewsSection.style.display = "block";
+  if (detail.news && Array.isArray(detail.news) && detail.news.length > 0) {
+    if (els.mNews && els.mNewsSection) {
+      els.mNews.innerHTML = detail.news.map(n => {
+        const title = (n.title || n.name || "").trim();
+        const url = n.url || n.link || "#";
+        const date = n.date || n.time || "";
+        return `
+          <div class="newsItem">
+            <a href="${url}" target="_blank" rel="noreferrer" class="newsLink">${title}</a>
+            ${date ? `<span class="newsDate">${date}</span>` : ""}
+          </div>
+        `;
+      }).join("");
+      els.mNewsSection.style.display = "block";
+    }
+  } else if (els.mNewsSection) {
+    els.mNewsSection.style.display = "none";
   }
   
   // Financials
-  if (detail.financials && detail.financials.length > 0 && els.mFinancial && els.mFinancialSection) {
-    els.mFinancial.innerHTML = `
-      <table class="detailTable">
-        <thead>
-          <tr>
-            <th>구분</th>
-            <th class="right">매출액</th>
-            <th class="right">영업이익</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${detail.financials.map(f => `
+  if (detail.financials && Array.isArray(detail.financials) && detail.financials.length > 0) {
+    if (els.mFinancial && els.mFinancialSection) {
+      els.mFinancial.innerHTML = `
+        <table class="detailTable">
+          <thead>
             <tr>
-              <td>${f.period || "Recent"}</td>
-              <td class="right">${fmtNum(f.sales)}</td>
-              <td class="right">${fmtNum(f.operating_profit)}</td>
+              <th>구분</th>
+              <th class="right">매출액</th>
+              <th class="right">영업이익</th>
             </tr>
-          `).join("")}
-        </tbody>
-      </table>
-      <div class="hint">* 단위: 억원 (네이버 금융 기준)</div>
-    `;
-    els.mFinancialSection.style.display = "block";
+          </thead>
+          <tbody>
+            ${detail.financials.map(f => {
+              const period = f.period || f.date || "Recent";
+              const sales = f.sales || f.revenue || 0;
+              const profit = f.operating_profit || f.profit || 0;
+              return `
+                <tr>
+                  <td>${period}</td>
+                  <td class="right">${fmtNum(sales)}</td>
+                  <td class="right">${fmtNum(profit)}</td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+        <div class="hint">* 단위: 억원 (네이버 금융 기준)</div>
+      `;
+      els.mFinancialSection.style.display = "block";
+    }
+  } else if (els.mFinancialSection) {
+    els.mFinancialSection.style.display = "none";
   }
   
   // Investor trends
-  if (detail.investor_trends && detail.investor_trends.length > 0 && els.mInvestor && els.mInvestorSection) {
+  if (detail.investor_trends && Array.isArray(detail.investor_trends) && detail.investor_trends.length > 0) {
+    if (els.mInvestor && els.mInvestorSection) {
     els.mInvestor.innerHTML = `
       <table class="detailTable">
         <thead>
