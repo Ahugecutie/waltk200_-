@@ -855,12 +855,12 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 fin_soup = BeautifulSoup(fin_html, "html.parser")
                 fin_tables = fin_soup.select("table.type_2, table.tb_type1, table.sise, table.tb_type1_ifrs")
                 for table in fin_tables:
-                headers = table.select("th")
-                header_texts = [h.get_text(strip=True) for h in headers]
-                has_sales = any("매출액" in h or "매출" in h for h in header_texts)
-                has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
-                
-                if has_sales or has_profit:
+                    headers = table.select("th")
+                    header_texts = [h.get_text(strip=True) for h in headers]
+                    has_sales = any("매출액" in h or "매출" in h for h in header_texts)
+                    has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
+                    
+                    if has_sales or has_profit:
                     rows = table.select("tr")
                     for row in rows[1:]:  # Skip header
                         tds = row.select("td")
@@ -885,8 +885,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 })
                                 if len(financials) >= 3:  # Recent 3 periods
                                     break
-                            if len(financials) > 0:
-                                break
+                        if len(financials) > 0:
+                            break
                     if len(financials) > 0:
                         break
                 if len(financials) > 0:
@@ -937,12 +937,12 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 inv_soup = BeautifulSoup(inv_html, "html.parser")
                 inv_tables = inv_soup.select("table.type_2, table.tb_type1, table.sise, table.type_1")
                 for table in inv_tables:
-                headers = table.select("th")
-                header_texts = [h.get_text(strip=True) for h in headers]
-                has_institution = any("기관" in h for h in header_texts)
-                has_foreigner = any("외국인" in h for h in header_texts)
-                
-                if has_institution and has_foreigner:
+                    headers = table.select("th")
+                    header_texts = [h.get_text(strip=True) for h in headers]
+                    has_institution = any("기관" in h for h in header_texts)
+                    has_foreigner = any("외국인" in h for h in header_texts)
+                    
+                    if has_institution and has_foreigner:
                     rows = table.select("tr")
                     for row in rows[1:]:  # Skip header
                         tds = row.select("td")
@@ -966,8 +966,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 })
                                 if len(investor_trends) >= 5:  # Recent 5 days
                                     break
-                            if len(investor_trends) > 0:
-                                break
+                        if len(investor_trends) > 0:
+                            break
                     if len(investor_trends) > 0:
                         break
                 if len(investor_trends) > 0:
