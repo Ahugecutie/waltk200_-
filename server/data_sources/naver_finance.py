@@ -1105,10 +1105,15 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         for col_idx, th in enumerate(thead_ths):
                             h_text = th.get_text(strip=True)
                             # 날짜 형식 확인 (YYYY.MM 또는 YYYY.MM.DD)
-                            if re.match(r'\d{4}\.\d{1,2}', h_text):
-                                if h_text not in periods:
-                                    periods.append(h_text)
-                                    period_col_indices.append(col_idx)
+                            # 추정치 (E) 제외 - 실제 데이터만
+                            if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text:
+                                # 날짜만 추출 (YYYY.MM 형식)
+                                period_match = re.match(r'(\d{4}\.\d{1,2})', h_text)
+                                if period_match:
+                                    period_clean = period_match.group(1)
+                                    if period_clean not in periods:
+                                        periods.append(period_clean)
+                                        period_col_indices.append(col_idx)
                 else:
                     # thead가 없으면 첫 번째 행의 th에서 찾기
                     first_row = table.select_one("tr")
@@ -1116,10 +1121,14 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         first_row_ths = first_row.select("th")
                         for col_idx, th in enumerate(first_row_ths):
                             h_text = th.get_text(strip=True)
-                            if re.match(r'\d{4}\.\d{1,2}', h_text):
-                                if h_text not in periods:
-                                    periods.append(h_text)
-                                    period_col_indices.append(col_idx)
+                            # 추정치 (E) 제외
+                            if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text:
+                                period_match = re.match(r'(\d{4}\.\d{1,2})', h_text)
+                                if period_match:
+                                    period_clean = period_match.group(1)
+                                    if period_clean not in periods:
+                                        periods.append(period_clean)
+                                        period_col_indices.append(col_idx)
                 
                 # 최근 4개 기간만 (최신순) - 날짜를 파싱해서 정렬
                 # 날짜 형식: YYYY.MM 또는 YYYY.MM.DD
@@ -1165,12 +1174,14 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         if col_idx < len(profit_tds):
                             profit = _to_float(profit_tds[col_idx].get_text(strip=True))
                     
-                    # 0 값도 포함 (음수 영업이익 가능)
-                    financials.append({
-                        "period": period,
-                        "sales": sales,
-                        "operating_profit": profit,
-                    })
+                    # 실제 데이터가 있는 경우만 추가 (sales와 profit이 모두 0이면 제외)
+                    # 단, 음수 영업이익은 유효한 데이터이므로 포함
+                    if sales != 0 or profit != 0:
+                        financials.append({
+                            "period": period,
+                            "sales": sales,
+                            "operating_profit": profit,
+                        })
                 
                 if len(financials) > 0:
                     break
@@ -1231,10 +1242,14 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             thead_ths = thead_row.select("th[scope='col'], th")
                             for col_idx, th in enumerate(thead_ths):
                                 h_text = th.get_text(strip=True)
-                                if re.match(r'\d{4}\.\d{1,2}', h_text):
-                                    if h_text not in periods:
-                                        periods.append(h_text)
-                                        period_col_indices.append(col_idx)
+                                # 추정치 (E) 제외
+                                if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text:
+                                    period_match = re.match(r'(\d{4}\.\d{1,2})', h_text)
+                                    if period_match:
+                                        period_clean = period_match.group(1)
+                                        if period_clean not in periods:
+                                            periods.append(period_clean)
+                                            period_col_indices.append(col_idx)
                     
                     # 최근 4개 기간만 (최신순) - 날짜를 파싱해서 정렬
                     def parse_period(period_str):
@@ -1274,11 +1289,13 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             if col_idx < len(profit_tds):
                                 profit = _to_float(profit_tds[col_idx].get_text(strip=True))
                         
-                        financials.append({
-                            "period": period,
-                            "sales": sales,
-                            "operating_profit": profit,
-                        })
+                        # 실제 데이터가 있는 경우만 추가
+                        if sales != 0 or profit != 0:
+                            financials.append({
+                                "period": period,
+                                "sales": sales,
+                                "operating_profit": profit,
+                            })
                     
                     if len(financials) > 0:
                         break
