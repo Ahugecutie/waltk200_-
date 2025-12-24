@@ -1121,9 +1121,23 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     periods.append(h_text)
                                     period_col_indices.append(col_idx)
                 
-                # 최근 4개 기간만 (최신순)
-                periods = periods[:4]
-                period_col_indices = period_col_indices[:4]
+                # 최근 4개 기간만 (최신순) - 날짜를 파싱해서 정렬
+                # 날짜 형식: YYYY.MM 또는 YYYY.MM.DD
+                def parse_period(period_str):
+                    """Parse period string to tuple for sorting (year, month)"""
+                    match = re.match(r'(\d{4})\.(\d{1,2})', period_str)
+                    if match:
+                        return (int(match.group(1)), int(match.group(2)))
+                    return (0, 0)
+                
+                # Sort periods by date (newest first), then take first 4
+                period_data = list(zip(periods, period_col_indices))
+                period_data.sort(key=lambda x: parse_period(x[0]), reverse=True)  # 최신순
+                period_data = period_data[:4]  # 최근 4개만
+                
+                # Unzip back to lists
+                periods = [p[0] for p in period_data]
+                period_col_indices = [p[1] for p in period_data]
                 
                 # 매출액/영업이익 행의 데이터 가져오기
                 for period_idx, period in enumerate(periods):
@@ -1222,8 +1236,22 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                         periods.append(h_text)
                                         period_col_indices.append(col_idx)
                     
-                    periods = periods[:4]
-                    period_col_indices = period_col_indices[:4]
+                    # 최근 4개 기간만 (최신순) - 날짜를 파싱해서 정렬
+                    def parse_period(period_str):
+                        """Parse period string to tuple for sorting (year, month)"""
+                        match = re.match(r'(\d{4})\.(\d{1,2})', period_str)
+                        if match:
+                            return (int(match.group(1)), int(match.group(2)))
+                        return (0, 0)
+                    
+                    # Sort periods by date (newest first), then take first 4
+                    period_data = list(zip(periods, period_col_indices))
+                    period_data.sort(key=lambda x: parse_period(x[0]), reverse=True)  # 최신순
+                    period_data = period_data[:4]  # 최근 4개만
+                    
+                    # Unzip back to lists
+                    periods = [p[0] for p in period_data]
+                    period_col_indices = [p[1] for p in period_data]
                     
                     for period_idx, period in enumerate(periods):
                         sales = 0.0
@@ -1255,7 +1283,16 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     if len(financials) > 0:
                         break
         
+        # Sort financials by period (newest first) to ensure consistent ordering
         if financials:
+            def parse_period_for_sort(period_str):
+                """Parse period string to tuple for sorting (year, month)"""
+                match = re.match(r'(\d{4})\.(\d{1,2})', period_str)
+                if match:
+                    return (int(match.group(1)), int(match.group(2)))
+                return (0, 0)
+            
+            financials.sort(key=lambda x: parse_period_for_sort(x.get("period", "")), reverse=True)
             print(f"[{code}] Found {len(financials)} financial records (quarterly)")
         else:
             print(f"[{code}] No quarterly financial data found in main page")
