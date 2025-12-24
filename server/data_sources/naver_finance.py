@@ -1017,36 +1017,62 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             elif "연간" in caption_text or "연간" in parent_text:
                 annual_tables.append(table)
             else:
-                # If unclear, check column headers for quarterly patterns (YYYY.MM format with months like 03, 06, 09, 12)
+                # If unclear, check column headers for quarterly patterns
+                # 분기 실적: 03, 06, 09, 12월이 섞여 있어야 함
+                # 연간 실적: 모든 컬럼이 12월이면 연간
                 thead = table.select_one("thead")
                 if thead:
                     headers = thead.select("th")
                     header_texts = [h.get_text(strip=True) for h in headers]
-                    # Check for quarterly pattern (multiple months in same year)
-                    quarterly_pattern = False
+                    # Extract all date periods from headers
+                    date_periods = []
                     for h_text in header_texts:
-                        # Quarterly: 2024.09, 2024.12, 2025.03, etc.
-                        if re.match(r'\d{4}\.0[369]|\d{4}\.12', h_text):
-                            quarterly_pattern = True
-                            break
-                    if quarterly_pattern:
-                        quarterly_tables.append(table)
-                    else:
-                        # Annual pattern: 2022.12, 2023.12, 2024.12 (all December)
-                        annual_pattern = all(re.match(r'\d{4}\.12', h) for h in header_texts if re.match(r'\d{4}\.\d{1,2}', h))
-                        if not annual_pattern:
-                            # If unclear, prefer as quarterly
-                            quarterly_tables.append(table)
+                        period_match = re.match(r'(\d{4})\.(\d{1,2})', h_text)
+                        if period_match:
+                            year = int(period_match.group(1))
+                            month = int(period_match.group(2))
+                            date_periods.append((year, month))
+                    
+                    if len(date_periods) > 0:
+                        # Check if all months are December (연간 실적 패턴)
+                        all_december = all(month == 12 for _, month in date_periods)
+                        if all_december:
+                            # 연간 실적 테이블로 분류
+                            annual_tables.append(table)
+                        else:
+                            # 03, 06, 09, 12월이 섞여 있으면 분기 실적
+                            months = [month for _, month in date_periods]
+                            has_quarterly_months = any(m in [3, 6, 9, 12] for m in months)
+                            if has_quarterly_months:
+                                quarterly_tables.append(table)
+                            else:
+                                # 불명확한 경우 연간으로 분류 (안전하게)
+                                annual_tables.append(table)
                 else:
                     # If no thead, check first row
                     first_row = table.select_one("tr")
                     if first_row:
                         first_row_ths = first_row.select("th")
+                        date_periods = []
                         for th in first_row_ths:
                             h_text = th.get_text(strip=True)
-                            if re.match(r'\d{4}\.0[369]|\d{4}\.12', h_text):
-                                quarterly_tables.append(table)
-                                break
+                            period_match = re.match(r'(\d{4})\.(\d{1,2})', h_text)
+                            if period_match:
+                                year = int(period_match.group(1))
+                                month = int(period_match.group(2))
+                                date_periods.append((year, month))
+                        
+                        if len(date_periods) > 0:
+                            all_december = all(month == 12 for _, month in date_periods)
+                            if all_december:
+                                annual_tables.append(table)
+                            else:
+                                months = [month for _, month in date_periods]
+                                has_quarterly_months = any(m in [3, 6, 9, 12] for m in months)
+                                if has_quarterly_months:
+                                    quarterly_tables.append(table)
+                                else:
+                                    annual_tables.append(table)
         
         # Process quarterly tables first (우선순위)
         for table in quarterly_tables:
@@ -1188,9 +1214,14 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             # Skip fallback for this table - we already processed quarterly tables above
         
         # If no quarterly data found, try other tables (but skip annual tables)
+        # 연간 실적 테이블은 완전히 제외
         if len(financials) == 0:
             for table in fin_tables:
-                # Skip if this is an annual table
+                # Skip if this is an annual table (이미 분류된 연간 테이블 제외)
+                if table in annual_tables:
+                    continue
+                
+                # Skip if this is an annual table (텍스트 기반 체크)
                 caption = table.select_one("caption")
                 caption_text = caption.get_text(strip=True) if caption else ""
                 parent = table.find_parent(["div", "section"])
