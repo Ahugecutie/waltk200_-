@@ -58,8 +58,8 @@ class StockDetail:
     prev_close: Optional[float] = None
     # News
     news: Optional[List[dict]] = None  # [{"title": str, "date": str, "url": str}]
-    # Financial summary
-    financials: Optional[List[dict]] = None  # [{"period": str, "sales": float, "operating_profit": float}]
+    # Financial summary - date-keyed dictionary structure
+    financials: Optional[dict] = None  # {"2024.12": {"sales": float, "operating_profit": float}, ...}
     # Investor trends
     investor_trends: Optional[List[dict]] = None  # [{"date": str, "institution": int, "foreigner": int}]
 
@@ -1283,7 +1283,9 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     if len(financials) > 0:
                         break
         
-        # Sort financials by period (newest first) to ensure consistent ordering
+        # Convert financials from list to date-keyed object structure
+        # Structure: {"2024.12": {"sales": 195, "operating_profit": -10}, ...}
+        financials_dict = {}
         if financials:
             def parse_period_for_sort(period_str):
                 """Parse period string to tuple for sorting (year, month)"""
@@ -1292,10 +1294,24 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     return (int(match.group(1)), int(match.group(2)))
                 return (0, 0)
             
+            # Sort by period (newest first) to ensure consistent ordering
             financials.sort(key=lambda x: parse_period_for_sort(x.get("period", "")), reverse=True)
-            print(f"[{code}] Found {len(financials)} financial records (quarterly)")
+            
+            # Convert to date-keyed dictionary
+            for f in financials:
+                period = f.get("period", "")
+                if period:
+                    financials_dict[period] = {
+                        "sales": f.get("sales", 0.0),
+                        "operating_profit": f.get("operating_profit", 0.0),
+                    }
+            
+            print(f"[{code}] Found {len(financials_dict)} financial records (quarterly)")
         else:
             print(f"[{code}] No quarterly financial data found in main page")
+        
+        # Use dictionary structure instead of list (empty dict becomes None)
+        financials = financials_dict if financials_dict else None
         
         # Only try other pages if not found in main page (to speed up)
         # Skip - we prioritize quarterly tables from main page

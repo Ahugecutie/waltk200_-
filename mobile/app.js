@@ -391,31 +391,41 @@ function renderStockDetail(detail) {
   }
   
   // Financials
-  if (detail.financials && Array.isArray(detail.financials) && detail.financials.length > 0) {
-    if (els.mFinancial && els.mFinancialSection) {
+  // Financial summary - date-keyed dictionary structure
+  if (detail.financials && typeof detail.financials === "object" && !Array.isArray(detail.financials)) {
+    const financials = detail.financials;
+    const periods = Object.keys(financials).filter(p => p && financials[p]).sort((a, b) => {
+      // Sort by date (newest first): parse YYYY.MM format
+      const parseDate = (str) => {
+        const match = str.match(/(\d{4})\.(\d{1,2})/);
+        return match ? parseInt(match[1]) * 100 + parseInt(match[2]) : 0;
+      };
+      return parseDate(b) - parseDate(a);
+    });
+    
+    if (periods.length > 0 && els.mFinancial && els.mFinancialSection) {
+      // Build table with dynamic date columns
+      const headerRow = `<tr><th>구분</th>${periods.map(p => `<th class="right">${p}</th>`).join("")}</tr>`;
+      
+      const salesRow = `<tr><th>매출액</th>${periods.map(p => {
+        const sales = financials[p]?.sales || 0;
+        return `<td class="right">${fmtNum(sales)}</td>`;
+      }).join("")}</tr>`;
+      
+      const profitRow = `<tr><th>영업이익</th>${periods.map(p => {
+        const profit = financials[p]?.operating_profit || 0;
+        const profitClass = profit >= 0 ? "up" : "down";
+        return `<td class="right ${profitClass}">${fmtNum(profit)}</td>`;
+      }).join("")}</tr>`;
+      
       els.mFinancial.innerHTML = `
         <table class="detailTable">
           <thead>
-            <tr>
-              <th>구분</th>
-              <th class="right">매출액</th>
-              <th class="right">영업이익</th>
-            </tr>
+            ${headerRow}
           </thead>
           <tbody>
-            ${detail.financials.map(f => {
-              const period = f.period || f.date || "Recent";
-              const sales = f.sales || f.revenue || 0;
-              const profit = f.operating_profit || f.profit || 0;
-              const profitClass = profit >= 0 ? "up" : "down";
-              return `
-                <tr>
-                  <td>${period}</td>
-                  <td class="right">${fmtNum(sales)}</td>
-                  <td class="right ${profitClass}">${fmtNum(profit)}</td>
-                </tr>
-              `;
-            }).join("")}
+            ${salesRow}
+            ${profitRow}
           </tbody>
         </table>
         <div class="hint">* 단위: 억원 (네이버 금융 기준)</div>
