@@ -718,23 +718,56 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         change_pct = -abs(change_pct)
         
         # Volume and trade value
-        volume_el = soup.select_one("td span.blind")
         volume = 0
         trade_value = 0
-        # Try to find volume in the summary table
-        summary_table = soup.select_one("table.type_2")
-        if summary_table:
-            rows = summary_table.select("tr")
-            for row in rows:
-                th = row.select_one("th")
-                if th and "거래량" in th.get_text():
-                    td = row.select_one("td")
-                    if td:
-                        volume = _to_int(td.get_text(strip=True))
-                elif th and "거래대금" in th.get_text():
-                    td = row.select_one("td")
-                    if td:
-                        trade_value = _to_int(td.get_text(strip=True))
+        
+        # Method 1: Try to find by ID (most reliable)
+        quant_el = soup.select_one("span#_quant")
+        if quant_el:
+            volume = _to_int(quant_el.get_text(strip=True))
+        
+        amount_el = soup.select_one("span#_amount")
+        if amount_el:
+            # Check if the header indicates "백만" unit
+            amount_value = _to_int(amount_el.get_text(strip=True))
+            # Find the parent row to check the header
+            parent_row = amount_el.find_parent("tr")
+            if parent_row:
+                th = parent_row.select_one("th")
+                if th:
+                    th_text = th.get_text(strip=True)
+                    # If header contains "(백만)", multiply by 1,000,000
+                    if "(백만)" in th_text or "백만" in th_text:
+                        trade_value = amount_value * 1_000_000
+                    else:
+                        trade_value = amount_value
+            else:
+                trade_value = amount_value
+        
+        # Method 2: Fallback to table parsing if ID method didn't work
+        if volume == 0 or trade_value == 0:
+            summary_table = soup.select_one("table.type_2, table.type_tax")
+            if summary_table:
+                rows = summary_table.select("tr")
+                for row in rows:
+                    th = row.select_one("th")
+                    if th:
+                        th_text = th.get_text(strip=True)
+                        td = row.select_one("td")
+                        if td:
+                            td_text = td.get_text(strip=True)
+                            if "거래량" in th_text and volume == 0:
+                                volume = _to_int(td_text)
+                            elif "거래대금" in th_text and trade_value == 0:
+                                amount_value = _to_int(td_text)
+                                # Check if header indicates "백만" unit
+                                if "(백만)" in th_text or "백만" in th_text:
+                                    trade_value = amount_value * 1_000_000
+                                else:
+                                    trade_value = amount_value
+                            # Early exit if both found
+                            if volume > 0 and trade_value > 0:
+                                break
         
         # Market detection (KOSPI vs KOSDAQ)
         market = "KOSPI"
