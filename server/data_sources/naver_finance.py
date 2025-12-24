@@ -990,12 +990,66 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 print(f"Warning: Failed to fetch news page for {code}: {e}")
                 # Continue without news - don't block the response
         
-        # Financial summary (재무 요약) - parse from financial table
+        # Financial summary (재무 요약) - parse from QUARTERLY financial table (not annual)
         # Try main page first (already loaded) for speed
         financials = []
-        # First try main page (already loaded) - check all tables more thoroughly
+        # First try main page (already loaded) - prioritize QUARTERLY tables over annual
+        # Look for quarterly table first (최근 분기 실적)
         fin_tables = soup.select("table.type_2, table.tb_type1, table.tb_type1_ifrs, table.sise")
+        
+        # Separate quarterly and annual tables
+        quarterly_tables = []
+        annual_tables = []
+        
         for table in fin_tables:
+            # Check caption or nearby text to identify table type
+            caption = table.select_one("caption")
+            caption_text = caption.get_text(strip=True) if caption else ""
+            
+            # Check parent div or h4 for table title
+            parent = table.find_parent(["div", "section"])
+            parent_text = parent.get_text(strip=True) if parent else ""
+            
+            # Check if this is a quarterly table (분기)
+            if "분기" in caption_text or "분기" in parent_text:
+                quarterly_tables.append(table)
+            # Check if this is an annual table (연간) - we want to skip this
+            elif "연간" in caption_text or "연간" in parent_text:
+                annual_tables.append(table)
+            else:
+                # If unclear, check column headers for quarterly patterns (YYYY.MM format with months like 03, 06, 09, 12)
+                thead = table.select_one("thead")
+                if thead:
+                    headers = thead.select("th")
+                    header_texts = [h.get_text(strip=True) for h in headers]
+                    # Check for quarterly pattern (multiple months in same year)
+                    quarterly_pattern = False
+                    for h_text in header_texts:
+                        # Quarterly: 2024.09, 2024.12, 2025.03, etc.
+                        if re.match(r'\d{4}\.0[369]|\d{4}\.12', h_text):
+                            quarterly_pattern = True
+                            break
+                    if quarterly_pattern:
+                        quarterly_tables.append(table)
+                    else:
+                        # Annual pattern: 2022.12, 2023.12, 2024.12 (all December)
+                        annual_pattern = all(re.match(r'\d{4}\.12', h) for h in header_texts if re.match(r'\d{4}\.\d{1,2}', h))
+                        if not annual_pattern:
+                            # If unclear, prefer as quarterly
+                            quarterly_tables.append(table)
+                else:
+                    # If no thead, check first row
+                    first_row = table.select_one("tr")
+                    if first_row:
+                        first_row_ths = first_row.select("th")
+                        for th in first_row_ths:
+                            h_text = th.get_text(strip=True)
+                            if re.match(r'\d{4}\.0[369]|\d{4}\.12', h_text):
+                                quarterly_tables.append(table)
+                                break
+        
+        # Process quarterly tables first (우선순위)
+        for table in quarterly_tables:
             # 컬럼 헤더 찾기 (scope="col" 또는 thead 내부)
             thead = table.select_one("thead")
             col_headers = []
@@ -1010,6 +1064,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             col_header_texts = [h.get_text(strip=True) for h in col_headers]
             
             # 행 헤더에서 매출액/영업이익 찾기 (scope="row")
+            # 우선순위: "(억원)" 단위가 있는 절대값 데이터만 (비율 데이터 제외)
             rows = table.select("tr")
             sales_row_idx = None
             profit_row_idx = None
@@ -1018,10 +1073,22 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 row_headers = row.select("th[scope='row'], th.h_th2")
                 for rh in row_headers:
                     rh_text = rh.get_text(strip=True)
-                    if "매출액" in rh_text or ("매출" in rh_text and "매출원가" not in rh_text):
-                        sales_row_idx = i
-                    elif "영업이익" in rh_text or "영업손익" in rh_text:
-                        profit_row_idx = i
+                    # 매출액: "(억원)" 단위가 있는 것만 (비율 제외)
+                    if "매출액" in rh_text and "(억원)" in rh_text:
+                        if sales_row_idx is None:  # First match takes priority
+                            sales_row_idx = i
+                    elif "매출액" in rh_text and "매출원가" not in rh_text and "%" not in rh_text and "률" not in rh_text:
+                        # Fallback: 매출액이지만 비율이 아닌 경우
+                        if sales_row_idx is None:
+                            sales_row_idx = i
+                    # 영업이익: "(억원)" 단위가 있는 것만 (비율 제외)
+                    elif ("영업이익" in rh_text or "영업손익" in rh_text) and "(억원)" in rh_text:
+                        if profit_row_idx is None:  # First match takes priority
+                            profit_row_idx = i
+                    elif ("영업이익" in rh_text or "영업손익" in rh_text) and "%" not in rh_text and "률" not in rh_text:
+                        # Fallback: 영업이익이지만 비율이 아닌 경우
+                        if profit_row_idx is None:
+                            profit_row_idx = i
             
             # 매출액/영업이익 행이 있으면 파싱
             if sales_row_idx is not None or profit_row_idx is not None:
@@ -1094,100 +1161,107 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 if len(financials) > 0:
                     break
             
-            # Fallback: 기존 방식 (컬럼 헤더에서 매출액/영업이익 찾기)
-            if len(financials) == 0:
-                has_sales = any("매출액" in h or "매출" in h for h in col_header_texts)
-                has_profit = any("영업이익" in h or "영업" in h or "영업손익" in h for h in col_header_texts)
+            # Skip fallback for this table - we already processed quarterly tables above
+        
+        # If no quarterly data found, try other tables (but skip annual tables)
+        if len(financials) == 0:
+            for table in fin_tables:
+                # Skip if this is an annual table
+                caption = table.select_one("caption")
+                caption_text = caption.get_text(strip=True) if caption else ""
+                parent = table.find_parent(["div", "section"])
+                parent_text = parent.get_text(strip=True) if parent else ""
+                if "연간" in caption_text or "연간" in parent_text:
+                    continue  # Skip annual tables
                 
-                if has_sales or has_profit:
-                    for row in rows[1:]:  # Skip header
-                        tds = row.select("td")
-                        if len(tds) < 2:
-                            continue
-                        
-                        period = tds[0].get_text(strip=True)
-                        if not period or period in ["구분", "항목", "계정과목"]:
-                            continue
-                        
+                # Try the same parsing logic
+                thead = table.select_one("thead")
+                col_headers = []
+                if thead:
+                    col_headers = thead.select("th[scope='col'], th")
+                else:
+                    first_row = table.select_one("tr")
+                    if first_row:
+                        col_headers = first_row.select("th")
+                
+                col_header_texts = [h.get_text(strip=True) for h in col_headers]
+                rows = table.select("tr")
+                sales_row_idx = None
+                profit_row_idx = None
+                
+                for i, row in enumerate(rows):
+                    row_headers = row.select("th[scope='row'], th.h_th2")
+                    for rh in row_headers:
+                        rh_text = rh.get_text(strip=True)
+                        if "매출액" in rh_text and "(억원)" in rh_text:
+                            if sales_row_idx is None:
+                                sales_row_idx = i
+                        elif "매출액" in rh_text and "매출원가" not in rh_text and "%" not in rh_text and "률" not in rh_text:
+                            if sales_row_idx is None:
+                                sales_row_idx = i
+                        elif ("영업이익" in rh_text or "영업손익" in rh_text) and "(억원)" in rh_text:
+                            if profit_row_idx is None:
+                                profit_row_idx = i
+                        elif ("영업이익" in rh_text or "영업손익" in rh_text) and "%" not in rh_text and "률" not in rh_text:
+                            if profit_row_idx is None:
+                                profit_row_idx = i
+                
+                if sales_row_idx is not None or profit_row_idx is not None:
+                    # Same parsing logic as above
+                    periods = []
+                    period_col_indices = []
+                    
+                    if thead:
+                        thead_rows = thead.select("tr")
+                        for thead_row in thead_rows:
+                            thead_ths = thead_row.select("th[scope='col'], th")
+                            for col_idx, th in enumerate(thead_ths):
+                                h_text = th.get_text(strip=True)
+                                if re.match(r'\d{4}\.\d{1,2}', h_text):
+                                    if h_text not in periods:
+                                        periods.append(h_text)
+                                        period_col_indices.append(col_idx)
+                    
+                    periods = periods[:4]
+                    period_col_indices = period_col_indices[:4]
+                    
+                    for period_idx, period in enumerate(periods):
                         sales = 0.0
                         profit = 0.0
-                        for i, header in enumerate(col_header_texts):
-                            if i + 1 < len(tds):
-                                if "매출액" in header or "매출" in header:
-                                    sales = _to_float(tds[i + 1].get_text(strip=True))
-                                elif "영업이익" in header or "영업" in header or "영업손익" in header:
-                                    profit = _to_float(tds[i + 1].get_text(strip=True))
                         
-                        if sales == 0 and profit == 0 and len(tds) >= 3:
-                            sales = _to_float(tds[1].get_text(strip=True))
-                            profit = _to_float(tds[2].get_text(strip=True))
+                        if period_idx < len(period_col_indices):
+                            col_idx = period_col_indices[period_idx]
+                        else:
+                            col_idx = period_idx + 1
                         
-                        if period and period.strip() and (sales != 0 or profit != 0):
-                            financials.append({
-                                "period": period.strip(),
-                                "sales": sales,
-                                "operating_profit": profit,
-                            })
-                            if len(financials) >= 4:  # 최근 4개 기간
-                                break
+                        if sales_row_idx is not None and sales_row_idx < len(rows):
+                            sales_row = rows[sales_row_idx]
+                            sales_tds = sales_row.select("td")
+                            if col_idx < len(sales_tds):
+                                sales = _to_float(sales_tds[col_idx].get_text(strip=True))
+                        
+                        if profit_row_idx is not None and profit_row_idx < len(rows):
+                            profit_row = rows[profit_row_idx]
+                            profit_tds = profit_row.select("td")
+                            if col_idx < len(profit_tds):
+                                profit = _to_float(profit_tds[col_idx].get_text(strip=True))
+                        
+                        financials.append({
+                            "period": period,
+                            "sales": sales,
+                            "operating_profit": profit,
+                        })
+                    
                     if len(financials) > 0:
                         break
         
         if financials:
-            print(f"[{code}] Found {len(financials)} financial records")
+            print(f"[{code}] Found {len(financials)} financial records (quarterly)")
         else:
-            print(f"[{code}] No financial data found in main page")
+            print(f"[{code}] No quarterly financial data found in main page")
         
         # Only try other pages if not found in main page (to speed up)
-        if not financials:
-            financial_pages = [
-                f"https://finance.naver.com/item/frgn.naver?code={code}",
-            ]
-            for fin_url in financial_pages:
-                try:
-                    fin_html = await _get(client, fin_url)
-                    fin_soup = BeautifulSoup(fin_html, "html.parser")
-                    fin_tables = fin_soup.select("table.type_2, table.tb_type1, table.sise, table.tb_type1_ifrs")
-                    for table in fin_tables:
-                        headers = table.select("th")
-                        header_texts = [h.get_text(strip=True) for h in headers]
-                        has_sales = any("매출액" in h or "매출" in h for h in header_texts)
-                        has_profit = any("영업이익" in h or "영업" in h for h in header_texts)
-                        
-                        if has_sales or has_profit:
-                            rows = table.select("tr")
-                            for row in rows[1:]:  # Skip header
-                                tds = row.select("td")
-                                if len(tds) >= 2:
-                                    # First cell is usually period/row label
-                                    period = tds[0].get_text(strip=True)
-                                    # Find sales and profit columns
-                                    sales = 0.0
-                                    profit = 0.0
-                                    for i, header in enumerate(header_texts):
-                                        if i + 1 < len(tds):
-                                            if "매출액" in header or "매출" in header:
-                                                sales = _to_float(tds[i + 1].get_text(strip=True))
-                                            elif "영업이익" in header or "영업" in header:
-                                                profit = _to_float(tds[i + 1].get_text(strip=True))
-                                    
-                                    if period and (sales > 0 or profit != 0):
-                                        financials.append({
-                                            "period": period,
-                                            "sales": sales,
-                                            "operating_profit": profit,
-                                        })
-                                        if len(financials) >= 4:  # Recent 4 periods
-                                            break
-                                if len(financials) > 0:
-                                    break
-                            if len(financials) > 0:
-                                break
-                    if len(financials) > 0:
-                        break
-                except Exception as e:
-                    print(f"Warning: Failed to fetch financial page {fin_url} for {code}: {e}")
-                    continue
+        # Skip - we prioritize quarterly tables from main page
         
         # Investor trends (투자자별 매매동향) - parse from investor table
         # Try main page first (already loaded) for speed
