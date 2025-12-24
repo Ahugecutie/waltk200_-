@@ -151,6 +151,28 @@ function fmtNum(n) {
   try { return Number(n).toLocaleString("ko-KR"); } catch { return String(n); }
 }
 
+function fmtTradeValue(n) {
+  // 거래대금을 억/만원 단위로 표시 (소숫점 없이)
+  if (n === null || n === undefined) return "-";
+  const num = Number(n);
+  if (num === 0) return "0원";
+  
+  const eok = Math.floor(num / 100_000_000); // 억
+  const man = Math.floor((num % 100_000_000) / 10_000); // 만
+  
+  if (eok > 0) {
+    if (man > 0) {
+      return `${eok}억 ${man}만원`;
+    } else {
+      return `${eok}억원`;
+    }
+  } else if (man > 0) {
+    return `${man}만원`;
+  } else {
+    return `${num.toLocaleString("ko-KR")}원`;
+  }
+}
+
 function fmtPct(n) {
   if (n === null || n === undefined) return "-";
   const v = Number(n);
@@ -191,7 +213,7 @@ async function openModal(stock) {
   els.mSub.innerHTML = `${stock.market ?? ""} · 현재가 ${fmtNum(stock.price)}원 · <span class="${pctCls}">${fmtPct(pct)}</span>`;
   els.mPills.innerHTML = "";
   const pills = [
-    `거래대금 ${fmtNum(stock.trade_value)}`,
+    `거래대금 ${fmtTradeValue(stock.trade_value)}`,
     `거래량 ${fmtNum(stock.volume)}`,
     `Score ${fmtNum(stock.score)}`,
   ];
@@ -466,7 +488,7 @@ function renderStocks(stocks) {
       <td data-label="종목명">${s.name}</td>
       <td class="right" data-label="현재가">${fmtNum(s.price)}</td>
       <td class="right ${pctCls}" data-label="등락률">${fmtPct(pct)}</td>
-      <td class="right" data-label="거래대금">${fmtNum(s.trade_value)}</td>
+      <td class="right" data-label="거래대금">${fmtTradeValue(s.trade_value)}</td>
       <td class="right" data-label="Score">${fmtNum(s.score)}</td>
     `;
     tr.addEventListener("click", () => openModal(currentStocks[idx]));
