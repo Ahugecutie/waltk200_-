@@ -1105,8 +1105,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         for col_idx, th in enumerate(thead_ths):
                             h_text = th.get_text(strip=True)
                             # 날짜 형식 확인 (YYYY.MM 또는 YYYY.MM.DD)
-                            # 추정치 (E) 제외 - 실제 데이터만
-                            if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text:
+                            # 추정치 (E) 제외 - (E)가 포함된 컬럼은 완전히 제외
+                            if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text and "(e)" not in h_text:
                                 # 날짜만 추출 (YYYY.MM 형식)
                                 period_match = re.match(r'(\d{4}\.\d{1,2})', h_text)
                                 if period_match:
@@ -1121,8 +1121,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         first_row_ths = first_row.select("th")
                         for col_idx, th in enumerate(first_row_ths):
                             h_text = th.get_text(strip=True)
-                            # 추정치 (E) 제외
-                            if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text:
+                            # 추정치 (E) 제외 - (E)가 포함된 컬럼은 완전히 제외
+                            if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text and "(e)" not in h_text:
                                 period_match = re.match(r'(\d{4}\.\d{1,2})', h_text)
                                 if period_match:
                                     period_clean = period_match.group(1)
@@ -1242,8 +1242,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             thead_ths = thead_row.select("th[scope='col'], th")
                             for col_idx, th in enumerate(thead_ths):
                                 h_text = th.get_text(strip=True)
-                                # 추정치 (E) 제외
-                                if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text:
+                                # 추정치 (E) 제외 - (E)가 포함된 컬럼은 완전히 제외
+                                if re.match(r'\d{4}\.\d{1,2}', h_text) and "(E)" not in h_text and "(e)" not in h_text:
                                     period_match = re.match(r'(\d{4}\.\d{1,2})', h_text)
                                     if period_match:
                                         period_clean = period_match.group(1)
