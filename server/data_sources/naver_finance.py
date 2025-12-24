@@ -963,49 +963,120 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # First try main page (already loaded) - check all tables more thoroughly
         fin_tables = soup.select("table.type_2, table.tb_type1, table.tb_type1_ifrs, table.sise")
         for table in fin_tables:
-            headers = table.select("th")
-            header_texts = [h.get_text(strip=True) for h in headers]
-            has_sales = any("매출액" in h or "매출" in h for h in header_texts)
-            has_profit = any("영업이익" in h or "영업" in h or "영업손익" in h for h in header_texts)
+            # 컬럼 헤더 찾기 (scope="col" 또는 thead 내부)
+            thead = table.select_one("thead")
+            col_headers = []
+            if thead:
+                col_headers = thead.select("th[scope='col'], th")
+            else:
+                # thead가 없으면 첫 번째 행의 th를 컬럼 헤더로 간주
+                first_row = table.select_one("tr")
+                if first_row:
+                    col_headers = first_row.select("th")
             
-            if has_sales or has_profit:
-                rows = table.select("tr")
-                for row in rows[1:]:  # Skip header
-                    tds = row.select("td")
-                    if len(tds) >= 2:
+            col_header_texts = [h.get_text(strip=True) for h in col_headers]
+            
+            # 행 헤더에서 매출액/영업이익 찾기 (scope="row")
+            rows = table.select("tr")
+            sales_row_idx = None
+            profit_row_idx = None
+            
+            for i, row in enumerate(rows):
+                row_headers = row.select("th[scope='row'], th.h_th2")
+                for rh in row_headers:
+                    rh_text = rh.get_text(strip=True)
+                    if "매출액" in rh_text or ("매출" in rh_text and "매출원가" not in rh_text):
+                        sales_row_idx = i
+                    elif "영업이익" in rh_text or "영업손익" in rh_text:
+                        profit_row_idx = i
+            
+            # 매출액/영업이익 행이 있으면 파싱
+            if sales_row_idx is not None or profit_row_idx is not None:
+                # 컬럼 헤더에서 기간 정보 추출 (YYYY.MM 형식)
+                periods = []
+                for h_text in col_header_texts:
+                    # 날짜 형식 확인 (YYYY.MM 또는 YYYY.MM.DD)
+                    if re.match(r'\d{4}\.\d{1,2}', h_text):
+                        periods.append(h_text)
+                
+                # 매출액/영업이익 행의 데이터 가져오기
+                for period_idx, period in enumerate(periods[:3]):  # 최근 3개만
+                    sales = 0.0
+                    profit = 0.0
+                    
+                    # 컬럼 인덱스 찾기 (헤더에서 period 위치)
+                    col_idx = None
+                    for i, h_text in enumerate(col_header_texts):
+                        if period in h_text or h_text == period:
+                            col_idx = i
+                            break
+                    
+                    if col_idx is None:
+                        # Fallback: period_idx + 1 (첫 번째 컬럼이 행 헤더일 수 있음)
+                        col_idx = period_idx + 1
+                    
+                    # 매출액 행에서 값 가져오기
+                    if sales_row_idx is not None and sales_row_idx < len(rows):
+                        sales_row = rows[sales_row_idx]
+                        sales_tds = sales_row.select("td")
+                        if col_idx < len(sales_tds):
+                            sales = _to_float(sales_tds[col_idx].get_text(strip=True))
+                    
+                    # 영업이익 행에서 값 가져오기
+                    if profit_row_idx is not None and profit_row_idx < len(rows):
+                        profit_row = rows[profit_row_idx]
+                        profit_tds = profit_row.select("td")
+                        if col_idx < len(profit_tds):
+                            profit = _to_float(profit_tds[col_idx].get_text(strip=True))
+                    
+                    if sales != 0 or profit != 0:
+                        financials.append({
+                            "period": period,
+                            "sales": sales,
+                            "operating_profit": profit,
+                        })
+                
+                if len(financials) > 0:
+                    break
+            
+            # Fallback: 기존 방식 (컬럼 헤더에서 매출액/영업이익 찾기)
+            if len(financials) == 0:
+                has_sales = any("매출액" in h or "매출" in h for h in col_header_texts)
+                has_profit = any("영업이익" in h or "영업" in h or "영업손익" in h for h in col_header_texts)
+                
+                if has_sales or has_profit:
+                    for row in rows[1:]:  # Skip header
+                        tds = row.select("td")
+                        if len(tds) < 2:
+                            continue
+                        
                         period = tds[0].get_text(strip=True)
-                        # Skip if period is empty or looks like a header
                         if not period or period in ["구분", "항목", "계정과목"]:
                             continue
                         
-                        # Find sales and profit columns by matching headers
                         sales = 0.0
                         profit = 0.0
-                        for i, header in enumerate(header_texts):
+                        for i, header in enumerate(col_header_texts):
                             if i + 1 < len(tds):
-                                header_lower = header.lower()
-                                if "매출액" in header or "매출" in header or "매출원가" in header:
+                                if "매출액" in header or "매출" in header:
                                     sales = _to_float(tds[i + 1].get_text(strip=True))
                                 elif "영업이익" in header or "영업" in header or "영업손익" in header:
                                     profit = _to_float(tds[i + 1].get_text(strip=True))
                         
-                        # Fallback: try positional parsing if header matching failed
                         if sales == 0 and profit == 0 and len(tds) >= 3:
-                            # Try common patterns: period, sales, profit
                             sales = _to_float(tds[1].get_text(strip=True))
                             profit = _to_float(tds[2].get_text(strip=True))
                         
-                        # Accept if we have at least one valid value
                         if period and period.strip() and (sales != 0 or profit != 0):
                             financials.append({
                                 "period": period.strip(),
                                 "sales": sales,
                                 "operating_profit": profit,
                             })
-                            if len(financials) >= 3:  # Recent 3 periods
+                            if len(financials) >= 3:
                                 break
-                if len(financials) > 0:
-                    break
+                    if len(financials) > 0:
+                        break
         
         if financials:
             print(f"[{code}] Found {len(financials)} financial records")
@@ -1074,11 +1145,24 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             has_foreigner = any("외국인" in h or "외국인투자자" in h for h in header_texts)
             
             if has_institution and has_foreigner:
+                # 컬럼 헤더만 찾기 (scope="col" 또는 thead 내부)
+                thead = table.select_one("thead")
+                col_headers = []
+                if thead:
+                    col_headers = thead.select("th[scope='col'], th")
+                else:
+                    # thead가 없으면 첫 번째 행의 th를 컬럼 헤더로 간주
+                    first_row = table.select_one("tr")
+                    if first_row:
+                        col_headers = first_row.select("th")
+                
+                col_header_texts = [h.get_text(strip=True) for h in col_headers]
+                
                 # 헤더에서 정확한 컬럼 인덱스 찾기
                 date_idx = None
                 institution_idx = None
                 foreigner_idx = None
-                for i, header in enumerate(header_texts):
+                for i, header in enumerate(col_header_texts):
                     if "날짜" in header or "일자" in header:
                         date_idx = i
                     elif "기관" in header or "기관투자자" in header:
@@ -1118,10 +1202,20 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         # Fallback: 세 번째 컬럼이 외국인일 가능성
                         foreigner = _to_int(tds[2].get_text(strip=True))
                     
-                    # 날짜가 숫자만 있는 경우(종가 등) 스킵
-                    if date and date.strip() and not date.strip().isdigit():
+                    # 날짜 형식 검증 (YYYY.MM.DD 또는 YYYY-MM-DD 형식만 허용)
+                    date_clean = date.strip() if date else ""
+                    is_valid_date = False
+                    if date_clean:
+                        # YYYY.MM.DD 또는 YYYY-MM-DD 형식 확인
+                        if re.match(r'\d{4}[\.-]\d{1,2}[\.-]\d{1,2}', date_clean):
+                            is_valid_date = True
+                        # 숫자만 있는 경우 스킵 (종가 등)
+                        elif date_clean.replace(",", "").replace(".", "").isdigit():
+                            is_valid_date = False
+                    
+                    if is_valid_date:
                         investor_trends.append({
-                            "date": date.strip(),
+                            "date": date_clean,
                             "institution": institution,
                             "foreigner": foreigner,
                         })
@@ -1152,11 +1246,23 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         has_foreigner = any("외국인" in h for h in header_texts)
                         
                         if has_institution and has_foreigner:
+                            # 컬럼 헤더만 찾기 (scope="col" 또는 thead 내부)
+                            thead = table.select_one("thead")
+                            col_headers = []
+                            if thead:
+                                col_headers = thead.select("th[scope='col'], th")
+                            else:
+                                first_row = table.select_one("tr")
+                                if first_row:
+                                    col_headers = first_row.select("th")
+                            
+                            col_header_texts = [h.get_text(strip=True) for h in col_headers]
+                            
                             # 헤더에서 정확한 컬럼 인덱스 찾기
                             date_idx = None
                             institution_idx = None
                             foreigner_idx = None
-                            for i, header in enumerate(header_texts):
+                            for i, header in enumerate(col_header_texts):
                                 if "날짜" in header or "일자" in header:
                                     date_idx = i
                                 elif "기관" in header:
@@ -1193,10 +1299,20 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 elif len(tds) >= 3:
                                     foreigner = _to_int(tds[2].get_text(strip=True))
                                 
-                                # 날짜가 숫자만 있는 경우(종가 등) 스킵
-                                if date and date.strip() and not date.strip().isdigit():
+                                # 날짜 형식 검증 (YYYY.MM.DD 또는 YYYY-MM-DD 형식만 허용)
+                                date_clean = date.strip() if date else ""
+                                is_valid_date = False
+                                if date_clean:
+                                    # YYYY.MM.DD 또는 YYYY-MM-DD 형식 확인
+                                    if re.match(r'\d{4}[\.-]\d{1,2}[\.-]\d{1,2}', date_clean):
+                                        is_valid_date = True
+                                    # 숫자만 있는 경우 스킵 (종가 등)
+                                    elif date_clean.replace(",", "").replace(".", "").isdigit():
+                                        is_valid_date = False
+                                
+                                if is_valid_date:
                                     investor_trends.append({
-                                        "date": date.strip(),
+                                        "date": date_clean,
                                         "institution": institution,
                                         "foreigner": foreigner,
                                     })
