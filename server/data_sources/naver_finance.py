@@ -175,13 +175,31 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
     if not table:
         return []
 
+    # 헤더에서 컬럼 인덱스 찾기
+    thead = table.select_one("thead")
+    header_map = {}
+    if thead:
+        headers = thead.select("th")
+        for i, th in enumerate(headers):
+            header_text = th.get_text(strip=True)
+            if "종목명" in header_text or "종목" in header_text:
+                header_map["name"] = i
+            elif "현재가" in header_text or "종가" in header_text:
+                header_map["price"] = i
+            elif "전일비" in header_text or "등락" in header_text:
+                header_map["change"] = i
+            elif "등락률" in header_text or "%" in header_text:
+                header_map["change_pct"] = i
+            elif "거래량" in header_text:
+                header_map["volume"] = i
+            elif "거래대금" in header_text:
+                header_map["trade_value"] = i
+    
     rows = table.select("tr")
     out: List[RisingStock] = []
     for tr in rows:
         tds = tr.find_all("td")
-        # Expected layout (type_2 / sise_rise):
-        # 0 rank, 1 name, 2 price, 3 change, 4 change%, 5 volume, 6 buy, 7 sell, 8 trade_value, 9 etc...
-        if len(tds) < 9:
+        if len(tds) < 5:
             continue
         a = tr.select_one("a.tltle")
         if not a:
@@ -194,18 +212,24 @@ async def fetch_rising_stocks(client: httpx.AsyncClient, market: str, limit: int
         code = m.group(1)
 
         # Filter out ETN, ETF, and special stocks (스펙종목)
-        # ETN/ETF typically have names ending with "ETN", "ETF", or contain these keywords
-        # 스펙종목 typically have names containing "스펙", "스팩", or are marked with special indicators
         name_upper = name.upper()
         if any(keyword in name_upper for keyword in ["ETN", "ETF", "스펙", "스팩", "SPAC"]):
             continue
 
-        # Robust parsing: rely on known column positions and regex-based numeric extraction.
-        price = _to_int(tds[2].get_text(" ", strip=True))
-        change = _to_int(tds[3].get_text(" ", strip=True))
-        change_pct = _to_float(tds[4].get_text(" ", strip=True))
-        volume = _to_int(tds[5].get_text(" ", strip=True))
-        trade_value = _to_int(tds[8].get_text(" ", strip=True)) if len(tds) > 8 else 0
+        # 헤더 매칭으로 정확한 컬럼 찾기, 없으면 기본 인덱스 사용
+        price_idx = header_map.get("price", 2)
+        change_idx = header_map.get("change", 3)
+        change_pct_idx = header_map.get("change_pct", 4)
+        volume_idx = header_map.get("volume", 5)
+        trade_value_idx = header_map.get("trade_value", 8)
+        
+        price = _to_int(tds[price_idx].get_text(" ", strip=True)) if price_idx < len(tds) else 0
+        change = _to_int(tds[change_idx].get_text(" ", strip=True)) if change_idx < len(tds) else 0
+        change_pct = _to_float(tds[change_pct_idx].get_text(" ", strip=True)) if change_pct_idx < len(tds) else 0.0
+        volume = _to_int(tds[volume_idx].get_text(" ", strip=True)) if volume_idx < len(tds) else 0
+        # 거래대금은 백만원 단위로 표시되므로 원 단위로 변환
+        trade_value_raw = tds[trade_value_idx].get_text(" ", strip=True) if trade_value_idx < len(tds) else "0"
+        trade_value = _to_int(trade_value_raw) * 1_000_000  # 백만원 → 원
 
         out.append(
             RisingStock(
@@ -1050,39 +1074,59 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             has_foreigner = any("외국인" in h or "외국인투자자" in h for h in header_texts)
             
             if has_institution and has_foreigner:
+                # 헤더에서 정확한 컬럼 인덱스 찾기
+                date_idx = None
+                institution_idx = None
+                foreigner_idx = None
+                for i, header in enumerate(header_texts):
+                    if "날짜" in header or "일자" in header:
+                        date_idx = i
+                    elif "기관" in header or "기관투자자" in header:
+                        institution_idx = i
+                    elif "외국인" in header or "외국인투자자" in header:
+                        foreigner_idx = i
+                
                 rows = table.select("tr")
                 for row in rows[1:]:  # Skip header
                     tds = row.select("td")
-                    if len(tds) >= 2:
-                        date = tds[0].get_text(strip=True)
-                        # Skip if date is empty or looks like a header
-                        if not date or date in ["날짜", "일자", "구분"]:
-                            continue
-                        
-                        # Find institution and foreigner columns by matching headers
-                        institution = 0
-                        foreigner = 0
-                        for i, header in enumerate(header_texts):
-                            if i + 1 < len(tds):
-                                if "기관" in header or "기관투자자" in header:
-                                    institution = _to_int(tds[i + 1].get_text(strip=True))
-                                elif "외국인" in header or "외국인투자자" in header:
-                                    foreigner = _to_int(tds[i + 1].get_text(strip=True))
-                        
-                        # Fallback: try positional parsing if header matching failed
-                        if institution == 0 and foreigner == 0 and len(tds) >= 3:
-                            institution = _to_int(tds[1].get_text(strip=True))
-                            foreigner = _to_int(tds[2].get_text(strip=True))
-                        
-                        # Accept if we have a valid date (values can be 0)
-                        if date and date.strip():
-                            investor_trends.append({
-                                "date": date.strip(),
-                                "institution": institution,
-                                "foreigner": foreigner,
-                            })
-                            if len(investor_trends) >= 5:  # Recent 5 days
-                                break
+                    if len(tds) < 3:
+                        continue
+                    
+                    # 헤더 매칭으로 정확한 컬럼 사용
+                    if date_idx is not None and date_idx < len(tds):
+                        date = tds[date_idx].get_text(strip=True)
+                    else:
+                        date = tds[0].get_text(strip=True)  # Fallback
+                    
+                    # Skip if date is empty or looks like a header
+                    if not date or date in ["날짜", "일자", "구분"]:
+                        continue
+                    
+                    # 헤더 매칭으로 기관/외국인 값 가져오기
+                    institution = 0
+                    foreigner = 0
+                    
+                    if institution_idx is not None and institution_idx < len(tds):
+                        institution = _to_int(tds[institution_idx].get_text(strip=True))
+                    elif len(tds) >= 2:
+                        # Fallback: 두 번째 컬럼이 기관일 가능성
+                        institution = _to_int(tds[1].get_text(strip=True))
+                    
+                    if foreigner_idx is not None and foreigner_idx < len(tds):
+                        foreigner = _to_int(tds[foreigner_idx].get_text(strip=True))
+                    elif len(tds) >= 3:
+                        # Fallback: 세 번째 컬럼이 외국인일 가능성
+                        foreigner = _to_int(tds[2].get_text(strip=True))
+                    
+                    # 날짜가 숫자만 있는 경우(종가 등) 스킵
+                    if date and date.strip() and not date.strip().isdigit():
+                        investor_trends.append({
+                            "date": date.strip(),
+                            "institution": institution,
+                            "foreigner": foreigner,
+                        })
+                        if len(investor_trends) >= 5:  # Recent 5 days
+                            break
                 if len(investor_trends) > 0:
                     break
         
@@ -1108,29 +1152,56 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         has_foreigner = any("외국인" in h for h in header_texts)
                         
                         if has_institution and has_foreigner:
+                            # 헤더에서 정확한 컬럼 인덱스 찾기
+                            date_idx = None
+                            institution_idx = None
+                            foreigner_idx = None
+                            for i, header in enumerate(header_texts):
+                                if "날짜" in header or "일자" in header:
+                                    date_idx = i
+                                elif "기관" in header:
+                                    institution_idx = i
+                                elif "외국인" in header:
+                                    foreigner_idx = i
+                            
                             rows = table.select("tr")
                             for row in rows[1:]:  # Skip header
                                 tds = row.select("td")
-                                if len(tds) >= 3:
-                                    date = tds[0].get_text(strip=True)
-                                    # Find institution and foreigner columns
-                                    institution = 0
-                                    foreigner = 0
-                                    for i, header in enumerate(header_texts):
-                                        if i + 1 < len(tds):
-                                            if "기관" in header:
-                                                institution = _to_int(tds[i + 1].get_text(strip=True))
-                                            elif "외국인" in header:
-                                                foreigner = _to_int(tds[i + 1].get_text(strip=True))
-                                    
-                                    if date:
-                                        investor_trends.append({
-                                            "date": date,
-                                            "institution": institution,
-                                            "foreigner": foreigner,
-                                        })
-                                        if len(investor_trends) >= 5:  # Recent 5 days
-                                            break
+                                if len(tds) < 3:
+                                    continue
+                                
+                                # 헤더 매칭으로 정확한 컬럼 사용
+                                if date_idx is not None and date_idx < len(tds):
+                                    date = tds[date_idx].get_text(strip=True)
+                                else:
+                                    date = tds[0].get_text(strip=True)  # Fallback
+                                
+                                # Skip if date is empty or looks like a header
+                                if not date or date in ["날짜", "일자", "구분"]:
+                                    continue
+                                
+                                institution = 0
+                                foreigner = 0
+                                
+                                if institution_idx is not None and institution_idx < len(tds):
+                                    institution = _to_int(tds[institution_idx].get_text(strip=True))
+                                elif len(tds) >= 2:
+                                    institution = _to_int(tds[1].get_text(strip=True))
+                                
+                                if foreigner_idx is not None and foreigner_idx < len(tds):
+                                    foreigner = _to_int(tds[foreigner_idx].get_text(strip=True))
+                                elif len(tds) >= 3:
+                                    foreigner = _to_int(tds[2].get_text(strip=True))
+                                
+                                # 날짜가 숫자만 있는 경우(종가 등) 스킵
+                                if date and date.strip() and not date.strip().isdigit():
+                                    investor_trends.append({
+                                        "date": date.strip(),
+                                        "institution": institution,
+                                        "foreigner": foreigner,
+                                    })
+                                    if len(investor_trends) >= 5:  # Recent 5 days
+                                        break
                                 if len(investor_trends) > 0:
                                     break
                             if len(investor_trends) > 0:
