@@ -993,25 +993,47 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             # 매출액/영업이익 행이 있으면 파싱
             if sales_row_idx is not None or profit_row_idx is not None:
                 # 컬럼 헤더에서 기간 정보 추출 (YYYY.MM 형식)
+                # thead의 th[scope='col']에서 날짜 헤더 찾기
                 periods = []
-                for h_text in col_header_texts:
-                    # 날짜 형식 확인 (YYYY.MM 또는 YYYY.MM.DD)
-                    if re.match(r'\d{4}\.\d{1,2}', h_text):
-                        periods.append(h_text)
+                period_col_indices = []  # 각 period의 실제 컬럼 인덱스
+                
+                # thead에서 직접 컬럼 헤더와 인덱스 매핑
+                if thead:
+                    thead_rows = thead.select("tr")
+                    for thead_row in thead_rows:
+                        thead_ths = thead_row.select("th[scope='col'], th")
+                        for col_idx, th in enumerate(thead_ths):
+                            h_text = th.get_text(strip=True)
+                            # 날짜 형식 확인 (YYYY.MM 또는 YYYY.MM.DD)
+                            if re.match(r'\d{4}\.\d{1,2}', h_text):
+                                if h_text not in periods:
+                                    periods.append(h_text)
+                                    period_col_indices.append(col_idx)
+                else:
+                    # thead가 없으면 첫 번째 행의 th에서 찾기
+                    first_row = table.select_one("tr")
+                    if first_row:
+                        first_row_ths = first_row.select("th")
+                        for col_idx, th in enumerate(first_row_ths):
+                            h_text = th.get_text(strip=True)
+                            if re.match(r'\d{4}\.\d{1,2}', h_text):
+                                if h_text not in periods:
+                                    periods.append(h_text)
+                                    period_col_indices.append(col_idx)
+                
+                # 최근 4개 기간만 (최신순)
+                periods = periods[:4]
+                period_col_indices = period_col_indices[:4]
                 
                 # 매출액/영업이익 행의 데이터 가져오기
-                for period_idx, period in enumerate(periods[:3]):  # 최근 3개만
+                for period_idx, period in enumerate(periods):
                     sales = 0.0
                     profit = 0.0
                     
-                    # 컬럼 인덱스 찾기 (헤더에서 period 위치)
-                    col_idx = None
-                    for i, h_text in enumerate(col_header_texts):
-                        if period in h_text or h_text == period:
-                            col_idx = i
-                            break
-                    
-                    if col_idx is None:
+                    # 컬럼 인덱스 사용 (thead에서 찾은 정확한 인덱스)
+                    if period_idx < len(period_col_indices):
+                        col_idx = period_col_indices[period_idx]
+                    else:
                         # Fallback: period_idx + 1 (첫 번째 컬럼이 행 헤더일 수 있음)
                         col_idx = period_idx + 1
                     
@@ -1029,12 +1051,12 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         if col_idx < len(profit_tds):
                             profit = _to_float(profit_tds[col_idx].get_text(strip=True))
                     
-                    if sales != 0 or profit != 0:
-                        financials.append({
-                            "period": period,
-                            "sales": sales,
-                            "operating_profit": profit,
-                        })
+                    # 0 값도 포함 (음수 영업이익 가능)
+                    financials.append({
+                        "period": period,
+                        "sales": sales,
+                        "operating_profit": profit,
+                    })
                 
                 if len(financials) > 0:
                     break
@@ -1073,7 +1095,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 "sales": sales,
                                 "operating_profit": profit,
                             })
-                            if len(financials) >= 3:
+                            if len(financials) >= 4:  # 최근 4개 기간
                                 break
                     if len(financials) > 0:
                         break
@@ -1122,7 +1144,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                             "sales": sales,
                                             "operating_profit": profit,
                                         })
-                                        if len(financials) >= 3:  # Recent 3 periods
+                                        if len(financials) >= 4:  # Recent 4 periods
                                             break
                                 if len(financials) > 0:
                                     break
@@ -1146,10 +1168,13 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             
             if has_institution and has_foreigner:
                 # 컬럼 헤더만 찾기 (scope="col" 또는 thead 내부)
-                thead = table.select_one("thead")
+                inv_thead = table.select_one("thead")
                 col_headers = []
-                if thead:
-                    col_headers = thead.select("th[scope='col'], th")
+                if inv_thead:
+                    # thead의 모든 tr에서 th 찾기
+                    thead_rows = inv_thead.select("tr")
+                    for thead_row in thead_rows:
+                        col_headers.extend(thead_row.select("th[scope='col'], th"))
                 else:
                     # thead가 없으면 첫 번째 행의 th를 컬럼 헤더로 간주
                     first_row = table.select_one("tr")
@@ -1163,7 +1188,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 institution_idx = None
                 foreigner_idx = None
                 for i, header in enumerate(col_header_texts):
-                    if "날짜" in header or "일자" in header:
+                    header_lower = header.lower()
+                    if "날짜" in header or "일자" in header or "date" in header_lower:
                         date_idx = i
                     elif "기관" in header or "기관투자자" in header:
                         institution_idx = i
@@ -1173,7 +1199,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 rows = table.select("tr")
                 for row in rows[1:]:  # Skip header
                     tds = row.select("td")
-                    if len(tds) < 3:
+                    if len(tds) < 2:
                         continue
                     
                     # 헤더 매칭으로 정확한 컬럼 사용
@@ -1183,24 +1209,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         date = tds[0].get_text(strip=True)  # Fallback
                     
                     # Skip if date is empty or looks like a header
-                    if not date or date in ["날짜", "일자", "구분"]:
+                    if not date or date in ["날짜", "일자", "구분", "Date"]:
                         continue
-                    
-                    # 헤더 매칭으로 기관/외국인 값 가져오기
-                    institution = 0
-                    foreigner = 0
-                    
-                    if institution_idx is not None and institution_idx < len(tds):
-                        institution = _to_int(tds[institution_idx].get_text(strip=True))
-                    elif len(tds) >= 2:
-                        # Fallback: 두 번째 컬럼이 기관일 가능성
-                        institution = _to_int(tds[1].get_text(strip=True))
-                    
-                    if foreigner_idx is not None and foreigner_idx < len(tds):
-                        foreigner = _to_int(tds[foreigner_idx].get_text(strip=True))
-                    elif len(tds) >= 3:
-                        # Fallback: 세 번째 컬럼이 외국인일 가능성
-                        foreigner = _to_int(tds[2].get_text(strip=True))
                     
                     # 날짜 형식 검증 (YYYY.MM.DD 또는 YYYY-MM-DD 형식만 허용)
                     date_clean = date.strip() if date else ""
@@ -1210,17 +1220,37 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         if re.match(r'\d{4}[\.-]\d{1,2}[\.-]\d{1,2}', date_clean):
                             is_valid_date = True
                         # 숫자만 있는 경우 스킵 (종가 등)
-                        elif date_clean.replace(",", "").replace(".", "").isdigit():
+                        elif date_clean.replace(",", "").replace(".", "").replace("-", "").isdigit():
                             is_valid_date = False
                     
-                    if is_valid_date:
-                        investor_trends.append({
-                            "date": date_clean,
-                            "institution": institution,
-                            "foreigner": foreigner,
-                        })
-                        if len(investor_trends) >= 5:  # Recent 5 days
-                            break
+                    if not is_valid_date:
+                        continue
+                    
+                    # 헤더 매칭으로 기관/외국인 값 가져오기
+                    institution = 0
+                    foreigner = 0
+                    
+                    if institution_idx is not None and institution_idx < len(tds):
+                        institution_text = tds[institution_idx].get_text(strip=True)
+                        institution = _to_int(institution_text)
+                    elif len(tds) >= 2:
+                        # Fallback: 두 번째 컬럼이 기관일 가능성
+                        institution = _to_int(tds[1].get_text(strip=True))
+                    
+                    if foreigner_idx is not None and foreigner_idx < len(tds):
+                        foreigner_text = tds[foreigner_idx].get_text(strip=True)
+                        foreigner = _to_int(foreigner_text)
+                    elif len(tds) >= 3:
+                        # Fallback: 세 번째 컬럼이 외국인일 가능성
+                        foreigner = _to_int(tds[2].get_text(strip=True))
+                    
+                    investor_trends.append({
+                        "date": date_clean,
+                        "institution": institution,
+                        "foreigner": foreigner,
+                    })
+                    if len(investor_trends) >= 5:  # Recent 5 days
+                        break
                 if len(investor_trends) > 0:
                     break
         
@@ -1247,10 +1277,13 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         
                         if has_institution and has_foreigner:
                             # 컬럼 헤더만 찾기 (scope="col" 또는 thead 내부)
-                            thead = table.select_one("thead")
+                            inv_thead = table.select_one("thead")
                             col_headers = []
-                            if thead:
-                                col_headers = thead.select("th[scope='col'], th")
+                            if inv_thead:
+                                # thead의 모든 tr에서 th 찾기
+                                thead_rows = inv_thead.select("tr")
+                                for thead_row in thead_rows:
+                                    col_headers.extend(thead_row.select("th[scope='col'], th"))
                             else:
                                 first_row = table.select_one("tr")
                                 if first_row:
@@ -1263,7 +1296,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             institution_idx = None
                             foreigner_idx = None
                             for i, header in enumerate(col_header_texts):
-                                if "날짜" in header or "일자" in header:
+                                header_lower = header.lower()
+                                if "날짜" in header or "일자" in header or "date" in header_lower:
                                     date_idx = i
                                 elif "기관" in header:
                                     institution_idx = i
@@ -1273,7 +1307,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             rows = table.select("tr")
                             for row in rows[1:]:  # Skip header
                                 tds = row.select("td")
-                                if len(tds) < 3:
+                                if len(tds) < 2:
                                     continue
                                 
                                 # 헤더 매칭으로 정확한 컬럼 사용
@@ -1283,21 +1317,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     date = tds[0].get_text(strip=True)  # Fallback
                                 
                                 # Skip if date is empty or looks like a header
-                                if not date or date in ["날짜", "일자", "구분"]:
+                                if not date or date in ["날짜", "일자", "구분", "Date"]:
                                     continue
-                                
-                                institution = 0
-                                foreigner = 0
-                                
-                                if institution_idx is not None and institution_idx < len(tds):
-                                    institution = _to_int(tds[institution_idx].get_text(strip=True))
-                                elif len(tds) >= 2:
-                                    institution = _to_int(tds[1].get_text(strip=True))
-                                
-                                if foreigner_idx is not None and foreigner_idx < len(tds):
-                                    foreigner = _to_int(tds[foreigner_idx].get_text(strip=True))
-                                elif len(tds) >= 3:
-                                    foreigner = _to_int(tds[2].get_text(strip=True))
                                 
                                 # 날짜 형식 검증 (YYYY.MM.DD 또는 YYYY-MM-DD 형식만 허용)
                                 date_clean = date.strip() if date else ""
@@ -1307,19 +1328,36 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                     if re.match(r'\d{4}[\.-]\d{1,2}[\.-]\d{1,2}', date_clean):
                                         is_valid_date = True
                                     # 숫자만 있는 경우 스킵 (종가 등)
-                                    elif date_clean.replace(",", "").replace(".", "").isdigit():
+                                    elif date_clean.replace(",", "").replace(".", "").replace("-", "").isdigit():
                                         is_valid_date = False
                                 
-                                if is_valid_date:
-                                    investor_trends.append({
-                                        "date": date_clean,
-                                        "institution": institution,
-                                        "foreigner": foreigner,
-                                    })
-                                    if len(investor_trends) >= 5:  # Recent 5 days
-                                        break
-                                if len(investor_trends) > 0:
+                                if not is_valid_date:
+                                    continue
+                                
+                                institution = 0
+                                foreigner = 0
+                                
+                                if institution_idx is not None and institution_idx < len(tds):
+                                    institution_text = tds[institution_idx].get_text(strip=True)
+                                    institution = _to_int(institution_text)
+                                elif len(tds) >= 2:
+                                    institution = _to_int(tds[1].get_text(strip=True))
+                                
+                                if foreigner_idx is not None and foreigner_idx < len(tds):
+                                    foreigner_text = tds[foreigner_idx].get_text(strip=True)
+                                    foreigner = _to_int(foreigner_text)
+                                elif len(tds) >= 3:
+                                    foreigner = _to_int(tds[2].get_text(strip=True))
+                                
+                                investor_trends.append({
+                                    "date": date_clean,
+                                    "institution": institution,
+                                    "foreigner": foreigner,
+                                })
+                                if len(investor_trends) >= 5:  # Recent 5 days
                                     break
+                            if len(investor_trends) > 0:
+                                break
                             if len(investor_trends) > 0:
                                 break
                     if len(investor_trends) > 0:
