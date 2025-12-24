@@ -503,10 +503,11 @@ function renderSnapshot(obj) {
       els.lastPayload.textContent = JSON.stringify(obj, null, 2);
     }
     
-    const data = obj?.data || {};
+    // Handle both wrapped {data: {...}} and direct data object
+    const data = obj?.data || obj || {};
     
     // Handle empty or error data
-    if (obj.type === "empty" || data.error) {
+    if (obj?.type === "empty" || data.error) {
       if (data.error) {
         setStatus(`데이터 수집 중 오류: ${data.error}`);
       }
@@ -692,8 +693,8 @@ function connect() {
       const obj = JSON.parse(ev.data);
       els.lastPayload.textContent = JSON.stringify(obj, null, 2);
   
-      // 🔥🔥🔥 이 한 줄이 없어서 화면이 비어있던 것
-      if (obj.type === "snapshot") {
+      // Handle snapshot messages (both wrapped and direct formats)
+      if (obj.type === "snapshot" || obj.data) {
         renderSnapshot(obj);
         setBadge("badge--ok", "연결됨");
         setStatus("실시간 데이터를 수신했습니다.");
