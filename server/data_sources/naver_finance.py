@@ -61,7 +61,7 @@ class StockDetail:
     # Financial summary - date-keyed dictionary structure
     financials: Optional[dict] = None  # {"2024.12": {"sales": float, "operating_profit": float}, ...}
     # Investor trends
-    investor_trends: Optional[List[dict]] = None  # [{"date": str, "institution": int, "foreigner": int}]
+    investor_trends: Optional[List[dict]] = None  # [{"date": str, "institution": int, "foreigner": int, "foreigner_shares": int, "foreigner_ratio": float}]
 
 
 def _to_int(s: str) -> int:
@@ -1423,17 +1423,56 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                 col_header_texts = [h.get_text(strip=True) for h in col_headers]
                 
                 # 헤더에서 정확한 컬럼 인덱스 찾기
+                # 테이블 구조: 날짜, 종가, 전일비, 등락률, 거래량, 기관(순매매량), 외국인(순매매량), 외국인(보유주수), 외국인(보유율)
                 date_idx = None
                 institution_idx = None
                 foreigner_idx = None
+                foreigner_shares_idx = None
+                foreigner_ratio_idx = None
+                
+                # 2행 헤더 구조 처리: 첫 번째 행과 두 번째 행 모두 확인
                 for i, header in enumerate(col_header_texts):
                     header_lower = header.lower()
                     if "날짜" in header or "일자" in header or "date" in header_lower:
                         date_idx = i
-                    elif "기관" in header or "기관투자자" in header:
+                    elif "기관" in header and "순매매" in header:
                         institution_idx = i
-                    elif "외국인" in header or "외국인투자자" in header:
+                    elif "외국인" in header and "순매매" in header:
                         foreigner_idx = i
+                    elif "외국인" in header and ("보유주수" in header or "보유" in header) and "율" not in header:
+                        foreigner_shares_idx = i
+                    elif "외국인" in header and ("보유율" in header or "율" in header):
+                        foreigner_ratio_idx = i
+                
+                # Fallback: 헤더 텍스트가 정확히 매칭되지 않은 경우 위치 기반으로 추정
+                # 일반적인 순서: 날짜(0), 종가(1), 전일비(2), 등락률(3), 거래량(4), 기관(5), 외국인(6), 외국인보유주수(7), 외국인보유율(8)
+                if institution_idx is None and len(col_header_texts) > 5:
+                    # "기관"이 포함된 헤더 찾기
+                    for i, header in enumerate(col_header_texts):
+                        if "기관" in header and institution_idx is None:
+                            institution_idx = i
+                            break
+                
+                if foreigner_idx is None and len(col_header_texts) > 6:
+                    # "외국인"이 포함되고 "순매매"가 있는 헤더 찾기
+                    for i, header in enumerate(col_header_texts):
+                        if "외국인" in header and "순매매" in header and foreigner_idx is None:
+                            foreigner_idx = i
+                            break
+                
+                if foreigner_shares_idx is None and len(col_header_texts) > 7:
+                    # "외국인"이 포함되고 "보유주수"가 있는 헤더 찾기
+                    for i, header in enumerate(col_header_texts):
+                        if "외국인" in header and ("보유주수" in header or "보유" in header) and "율" not in header and foreigner_shares_idx is None:
+                            foreigner_shares_idx = i
+                            break
+                
+                if foreigner_ratio_idx is None and len(col_header_texts) > 8:
+                    # "외국인"이 포함되고 "보유율"이 있는 헤더 찾기
+                    for i, header in enumerate(col_header_texts):
+                        if "외국인" in header and ("보유율" in header or "율" in header) and foreigner_ratio_idx is None:
+                            foreigner_ratio_idx = i
+                            break
                 
                 rows = table.select("tr")
                 for row in rows[1:]:  # Skip header
@@ -1468,25 +1507,43 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     # 헤더 매칭으로 기관/외국인 값 가져오기
                     institution = 0
                     foreigner = 0
+                    foreigner_shares = 0
+                    foreigner_ratio = 0.0
                     
                     if institution_idx is not None and institution_idx < len(tds):
                         institution_text = tds[institution_idx].get_text(strip=True)
                         institution = _to_int(institution_text)
-                    elif len(tds) >= 2:
-                        # Fallback: 두 번째 컬럼이 기관일 가능성
-                        institution = _to_int(tds[1].get_text(strip=True))
+                    elif len(tds) > 5:
+                        # Fallback: 6번째 컬럼(인덱스 5)이 기관일 가능성
+                        institution = _to_int(tds[5].get_text(strip=True))
                     
                     if foreigner_idx is not None and foreigner_idx < len(tds):
                         foreigner_text = tds[foreigner_idx].get_text(strip=True)
                         foreigner = _to_int(foreigner_text)
-                    elif len(tds) >= 3:
-                        # Fallback: 세 번째 컬럼이 외국인일 가능성
-                        foreigner = _to_int(tds[2].get_text(strip=True))
+                    elif len(tds) > 6:
+                        # Fallback: 7번째 컬럼(인덱스 6)이 외국인 순매매량일 가능성
+                        foreigner = _to_int(tds[6].get_text(strip=True))
+                    
+                    if foreigner_shares_idx is not None and foreigner_shares_idx < len(tds):
+                        foreigner_shares_text = tds[foreigner_shares_idx].get_text(strip=True)
+                        foreigner_shares = _to_int(foreigner_shares_text)
+                    elif len(tds) > 7:
+                        # Fallback: 8번째 컬럼(인덱스 7)이 외국인 보유주수일 가능성
+                        foreigner_shares = _to_int(tds[7].get_text(strip=True))
+                    
+                    if foreigner_ratio_idx is not None and foreigner_ratio_idx < len(tds):
+                        foreigner_ratio_text = tds[foreigner_ratio_idx].get_text(strip=True)
+                        foreigner_ratio = _to_float(foreigner_ratio_text)
+                    elif len(tds) > 8:
+                        # Fallback: 9번째 컬럼(인덱스 8)이 외국인 보유율일 가능성
+                        foreigner_ratio = _to_float(tds[8].get_text(strip=True))
                     
                     investor_trends.append({
                         "date": date_clean,
                         "institution": institution,
                         "foreigner": foreigner,
+                        "foreigner_shares": foreigner_shares,
+                        "foreigner_ratio": foreigner_ratio,
                     })
                     if len(investor_trends) >= 5:  # Recent 5 days
                         break
@@ -1534,14 +1591,46 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             date_idx = None
                             institution_idx = None
                             foreigner_idx = None
+                            foreigner_shares_idx = None
+                            foreigner_ratio_idx = None
+                            
                             for i, header in enumerate(col_header_texts):
                                 header_lower = header.lower()
                                 if "날짜" in header or "일자" in header or "date" in header_lower:
                                     date_idx = i
-                                elif "기관" in header:
+                                elif "기관" in header and "순매매" in header:
                                     institution_idx = i
-                                elif "외국인" in header:
+                                elif "외국인" in header and "순매매" in header:
                                     foreigner_idx = i
+                                elif "외국인" in header and ("보유주수" in header or "보유" in header) and "율" not in header:
+                                    foreigner_shares_idx = i
+                                elif "외국인" in header and ("보유율" in header or "율" in header):
+                                    foreigner_ratio_idx = i
+                            
+                            # Fallback: 위치 기반 추정
+                            if institution_idx is None and len(col_header_texts) > 5:
+                                for i, header in enumerate(col_header_texts):
+                                    if "기관" in header and institution_idx is None:
+                                        institution_idx = i
+                                        break
+                            
+                            if foreigner_idx is None and len(col_header_texts) > 6:
+                                for i, header in enumerate(col_header_texts):
+                                    if "외국인" in header and "순매매" in header and foreigner_idx is None:
+                                        foreigner_idx = i
+                                        break
+                            
+                            if foreigner_shares_idx is None and len(col_header_texts) > 7:
+                                for i, header in enumerate(col_header_texts):
+                                    if "외국인" in header and ("보유주수" in header or "보유" in header) and "율" not in header and foreigner_shares_idx is None:
+                                        foreigner_shares_idx = i
+                                        break
+                            
+                            if foreigner_ratio_idx is None and len(col_header_texts) > 8:
+                                for i, header in enumerate(col_header_texts):
+                                    if "외국인" in header and ("보유율" in header or "율" in header) and foreigner_ratio_idx is None:
+                                        foreigner_ratio_idx = i
+                                        break
                             
                             rows = table.select("tr")
                             for row in rows[1:]:  # Skip header
@@ -1575,23 +1664,39 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                                 
                                 institution = 0
                                 foreigner = 0
+                                foreigner_shares = 0
+                                foreigner_ratio = 0.0
                                 
                                 if institution_idx is not None and institution_idx < len(tds):
                                     institution_text = tds[institution_idx].get_text(strip=True)
                                     institution = _to_int(institution_text)
-                                elif len(tds) >= 2:
-                                    institution = _to_int(tds[1].get_text(strip=True))
+                                elif len(tds) > 5:
+                                    institution = _to_int(tds[5].get_text(strip=True))
                                 
                                 if foreigner_idx is not None and foreigner_idx < len(tds):
                                     foreigner_text = tds[foreigner_idx].get_text(strip=True)
                                     foreigner = _to_int(foreigner_text)
-                                elif len(tds) >= 3:
-                                    foreigner = _to_int(tds[2].get_text(strip=True))
+                                elif len(tds) > 6:
+                                    foreigner = _to_int(tds[6].get_text(strip=True))
+                                
+                                if foreigner_shares_idx is not None and foreigner_shares_idx < len(tds):
+                                    foreigner_shares_text = tds[foreigner_shares_idx].get_text(strip=True)
+                                    foreigner_shares = _to_int(foreigner_shares_text)
+                                elif len(tds) > 7:
+                                    foreigner_shares = _to_int(tds[7].get_text(strip=True))
+                                
+                                if foreigner_ratio_idx is not None and foreigner_ratio_idx < len(tds):
+                                    foreigner_ratio_text = tds[foreigner_ratio_idx].get_text(strip=True)
+                                    foreigner_ratio = _to_float(foreigner_ratio_text)
+                                elif len(tds) > 8:
+                                    foreigner_ratio = _to_float(tds[8].get_text(strip=True))
                                 
                                 investor_trends.append({
                                     "date": date_clean,
                                     "institution": institution,
                                     "foreigner": foreigner,
+                                    "foreigner_shares": foreigner_shares,
+                                    "foreigner_ratio": foreigner_ratio,
                                 })
                                 if len(investor_trends) >= 5:  # Recent 5 days
                                     break

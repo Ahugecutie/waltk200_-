@@ -444,8 +444,10 @@ function renderStockDetail(detail) {
           <thead>
             <tr>
               <th>날짜</th>
-              <th class="right">기관</th>
-              <th class="right">외국인</th>
+              <th class="right">기관(순매매량)</th>
+              <th class="right">외국인(순매매량)</th>
+              <th class="right">외국인(보유주수)</th>
+              <th class="right">외국인(보유율)</th>
             </tr>
           </thead>
           <tbody>
@@ -453,6 +455,8 @@ function renderStockDetail(detail) {
               const date = t.date || t.time || "";
               const institution = t.institution || t.inst || 0;
               const foreigner = t.foreigner || t.foreign || 0;
+              const foreignerShares = t.foreigner_shares || 0;
+              const foreignerRatio = t.foreigner_ratio || 0;
               const fmtInvestor = (n) => {
                 if (n === 0) return "0";
                 const formatted = fmtNum(Math.abs(n));
@@ -466,12 +470,14 @@ function renderStockDetail(detail) {
                   <td>${date}</td>
                   <td class="right ${instClass}">${fmtInvestor(institution)}</td>
                   <td class="right ${forClass}">${fmtInvestor(foreigner)}</td>
+                  <td class="right">${fmtNum(foreignerShares)}</td>
+                  <td class="right">${foreignerRatio > 0 ? foreignerRatio.toFixed(2) + "%" : "-"}</td>
                 </tr>
               `;
             }).join("")}
           </tbody>
         </table>
-        <div class="hint">* 단위: 천주 (순매수 기준)</div>
+        <div class="hint">* 단위: 순매매량(천주), 보유주수(주), 보유율(%)</div>
       `;
       els.mInvestorSection.style.display = "block";
     }
