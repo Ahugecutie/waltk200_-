@@ -721,8 +721,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         volume = 0
         trade_value = 0
         
-        # Method 0: Parse from <li> structure (new structure: <li><strong>대금</strong><span class="text">42,397백만</span></li>)
-        # 우선순위: 이 방법을 먼저 시도 (호가 정보와 혼동 방지)
+        # Method 0: Parse from <span class="text"> structure (가장 정확한 방법)
+        # <strong>대금</strong> 다음 <span class="text">42,397백만</span> - 정적 정보 (우선 사용)
+        # <em> 안의 개별 숫자들은 실시간 변화 정보이므로 우선순위 낮음
+        
+        # 방법 1: <li> 구조에서 찾기
         li_items = soup.select("li")
         for li in li_items:
             strong_tag = li.select_one("strong")
@@ -741,6 +744,26 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             if number_value > 0:
                                 trade_value = number_value * 1_000_000
                                 break  # 찾았으면 중단
+        
+        # 방법 2: <span class="text">가 "백만"을 포함하는 경우 직접 찾기 (li 구조가 아닐 수도 있음)
+        if trade_value == 0:
+            text_spans = soup.select("span.text")
+            for text_span in text_spans:
+                value_text = text_span.get_text(strip=True)
+                # "42,397백만" 형태 확인
+                if "백만" in value_text:
+                    # 부모 요소에서 "대금" 또는 "거래대금" 키워드 확인
+                    parent = text_span.parent
+                    if parent:
+                        parent_text = parent.get_text(strip=True)
+                        # 부모나 형제에 "대금"이 있는지 확인
+                        if "대금" in parent_text or "거래대금" in parent_text:
+                            # 숫자 부분만 추출
+                            number_text = value_text.replace("백만", "").strip()
+                            number_value = _to_int(number_text)
+                            if number_value > 0:
+                                trade_value = number_value * 1_000_000
+                                break
         
         # Method 1: Parse from table structure (most reliable based on HTML structure)
         # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 숫자들
