@@ -721,6 +721,27 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         volume = 0
         trade_value = 0
         
+        # Method 0: Parse from <li> structure (new structure: <li><strong>대금</strong><span class="text">42,397백만</span></li>)
+        # 우선순위: 이 방법을 먼저 시도 (호가 정보와 혼동 방지)
+        li_items = soup.select("li")
+        for li in li_items:
+            strong_tag = li.select_one("strong")
+            if strong_tag:
+                strong_text = strong_tag.get_text(strip=True)
+                # "대금" 또는 "거래대금" 확인
+                if "대금" in strong_text or "거래대금" in strong_text:
+                    text_span = li.select_one("span.text")
+                    if text_span:
+                        value_text = text_span.get_text(strip=True)
+                        # "42,397백만" 형태에서 숫자 추출
+                        if "백만" in value_text:
+                            # 숫자 부분만 추출 (쉼표 제거 후 숫자만)
+                            number_text = value_text.replace("백만", "").strip()
+                            number_value = _to_int(number_text)
+                            if number_value > 0:
+                                trade_value = number_value * 1_000_000
+                                break  # 찾았으면 중단
+        
         # Method 1: Parse from table structure (most reliable based on HTML structure)
         # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 숫자들
         # 거래대금: <span class="sptxt sp_txt10">거래대금</span> 다음 <em> 태그 안의 숫자들, 그리고 <em> 다음 <span class="sptxt sp_txt11">백만</span>
