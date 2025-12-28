@@ -721,12 +721,36 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         volume = 0
         trade_value = 0
         
-        # Method 0: Parse from <span class="text"> structure (백만 단위) - 최우선
+        # Method 0: Parse from table row with <th class="title">거래대금(백만)</th> and <span id="_amount"> (최우선)
+        # <th class="title">거래대금(백만)</th><td class="num"><span id="_amount">693</span></td>
+        # 이미 백만 단위이므로 1,000,000 곱하기
+        all_tables_for_amount = soup.select("table")
+        for table in all_tables_for_amount:
+            rows = table.select("tr")
+            for row in rows:
+                th = row.select_one("th.title, th")
+                if th:
+                    th_text = th.get_text(strip=True)
+                    # "거래대금"이 포함되어 있고 "(백만)" 단위가 명시된 경우
+                    if "거래대금" in th_text and ("백만" in th_text or "(백만)" in th_text):
+                        td = row.select_one("td")
+                        if td:
+                            amount_span = td.select_one("span#_amount")
+                            if amount_span:
+                                amount_text = amount_span.get_text(strip=True)
+                                amount_value = _to_int(amount_text)
+                                if amount_value > 0:
+                                    # 백만 단위이므로 1,000,000 곱하기
+                                    trade_value = amount_value * 1_000_000
+                                    break  # 찾았으면 중단
+            if trade_value > 0:
+                break  # 찾았으면 테이블 검색 중단
+        
+        # Method 1: Parse from <span class="text"> structure (백만 단위) - fallback
         # <strong>대금</strong> 다음 <span class="text">42,397백만</span> - 정적 정보
         # <em> 안의 개별 숫자들은 실시간 변화 정보이므로 우선순위 낮음
-        # span#_amount는 다른 값(호가 정보 등)을 가져올 수 있으므로 사용하지 않음
-        
-        # 방법 1: <li> 구조에서 찾기
+        if trade_value == 0:
+            # 방법 1: <li> 구조에서 찾기
         li_items = soup.select("li")
         for li in li_items:
             strong_tag = li.select_one("strong")
