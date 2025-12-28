@@ -745,7 +745,26 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Method 1: Parse from table structure (most reliable based on HTML structure)
         # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 숫자들
         # 거래대금: <span class="sptxt sp_txt10">거래대금</span> 다음 <em> 태그 안의 숫자들, 그리고 <em> 다음 <span class="sptxt sp_txt11">백만</span>
-        summary_table = soup.select_one("table.type_2, table.type_tax, table.no_info")
+        # 호가 정보 테이블은 제외해야 함 (summary="호가 정보에 관한표입니다.")
+        summary_table = None
+        all_tables = soup.select("table.type_2, table.type_tax, table.no_info")
+        for table in all_tables:
+            # 호가 정보 테이블 제외
+            table_summary = table.get("summary", "")
+            if "호가 정보" in table_summary or "호가정보" in table_summary:
+                continue
+            # "주요 시세" 또는 "시세" 관련 테이블 우선 선택
+            if "주요 시세" in table_summary or "시세" in table_summary or "거래대금" in table_summary:
+                summary_table = table
+                break
+        # 위에서 찾지 못했으면 호가 정보가 아닌 첫 번째 테이블 사용
+        if not summary_table:
+            for table in all_tables:
+                table_summary = table.get("summary", "")
+                if "호가 정보" not in table_summary and "호가정보" not in table_summary:
+                    summary_table = table
+                    break
+        
         if summary_table:
             rows = summary_table.select("tr")
             for row in rows:
