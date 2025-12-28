@@ -722,8 +722,8 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         trade_value = 0
         
         # Method 1: Parse from table structure (most reliable based on HTML structure)
-        # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 <span class="blind">
-        # 거래대금: <span class="sptxt sp_txt10">거래대금</span> 다음 <em> 태그 안의 <span class="blind">, 그리고 <em> 다음 <span class="sptxt sp_txt11">백만</span>
+        # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 숫자들
+        # 거래대금: <span class="sptxt sp_txt10">거래대금</span> 다음 <em> 태그 안의 숫자들, 그리고 <em> 다음 <span class="sptxt sp_txt11">백만</span>
         summary_table = soup.select_one("table.type_2, table.type_tax, table.no_info")
         if summary_table:
             rows = summary_table.select("tr")
@@ -737,35 +737,34 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         # Find <em> tag after the label
                         em_tag = td.select_one("em")
                         if em_tag:
-                            # Extract number from <span class="blind"> inside <em>
-                            blind_span = em_tag.select_one("span.blind")
-                            if blind_span:
-                                number_text = blind_span.get_text(strip=True)
-                                number_value = _to_int(number_text)
-                                
-                                if "거래량" in label_text and volume == 0:
-                                    volume = number_value
-                                elif "거래대금" in label_text and trade_value == 0:
-                                    # Check for "백만" unit after <em> tag
-                                    # <em> 다음 형제 요소인 <span class="sptxt sp_txt11">백만</span>
-                                    next_span = em_tag.find_next_sibling("span")
-                                    if next_span:
-                                        unit_text = next_span.get_text(strip=True)
-                                        if "백만" in unit_text:
+                            # Extract number from <em> tag - get all text (handles both blind and noX spans)
+                            # 이미지 구조: <em> 안에 <span class="no4">4</span><span class="no2">2</span>... 형태
+                            number_text = em_tag.get_text(strip=True)
+                            number_value = _to_int(number_text)
+                            
+                            if "거래량" in label_text and volume == 0:
+                                volume = number_value
+                            elif "거래대금" in label_text and trade_value == 0:
+                                # Check for "백만" unit after <em> tag
+                                # <em> 다음 형제 요소인 <span class="sptxt sp_txt11">백만</span>
+                                next_span = em_tag.find_next_sibling("span")
+                                if next_span:
+                                    unit_text = next_span.get_text(strip=True)
+                                    if "백만" in unit_text:
+                                        trade_value = number_value * 1_000_000
+                                    else:
+                                        trade_value = number_value
+                                else:
+                                    # Fallback: check parent row's th for unit
+                                    th = row.select_one("th")
+                                    if th:
+                                        th_text = th.get_text(strip=True)
+                                        if "(백만)" in th_text or "백만" in th_text:
                                             trade_value = number_value * 1_000_000
                                         else:
                                             trade_value = number_value
                                     else:
-                                        # Fallback: check parent row's th for unit
-                                        th = row.select_one("th")
-                                        if th:
-                                            th_text = th.get_text(strip=True)
-                                            if "(백만)" in th_text or "백만" in th_text:
-                                                trade_value = number_value * 1_000_000
-                                            else:
-                                                trade_value = number_value
-                                        else:
-                                            trade_value = number_value
+                                        trade_value = number_value
                         
                         # Early exit if both found
                         if volume > 0 and trade_value > 0:
