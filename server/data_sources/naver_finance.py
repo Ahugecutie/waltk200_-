@@ -1438,11 +1438,36 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Try main page first (already loaded) for speed
         investor_trends = []
         inv_tables = soup.select("table.type_2, table.tb_type1, table.type_1, table.sise")
+        
+        # 우선순위: summary 속성에 "외국인" 또는 "기관" 또는 "순매매"가 포함된 테이블
+        priority_tables = []
+        other_tables = []
+        
         for table in inv_tables:
+            table_summary = table.get("summary", "")
+            caption = table.select_one("caption")
+            caption_text = caption.get_text(strip=True) if caption else ""
+            
+            # 우선순위 테이블: summary나 caption에 투자자 관련 키워드가 있는 경우
+            if any(keyword in table_summary or keyword in caption_text 
+                   for keyword in ["외국인", "기관", "순매매", "매매동향", "투자자"]):
+                priority_tables.append(table)
+            else:
+                other_tables.append(table)
+        
+        # 우선순위 테이블부터 처리
+        tables_to_check = priority_tables + other_tables
+        
+        for table in tables_to_check:
             headers = table.select("th")
             header_texts = [h.get_text(strip=True) for h in headers]
             has_institution = any("기관" in h or "기관투자자" in h for h in header_texts)
             has_foreigner = any("외국인" in h or "외국인투자자" in h for h in header_texts)
+            
+            # 호가 정보 테이블 제외
+            table_summary = table.get("summary", "")
+            if "호가 정보" in table_summary or "호가정보" in table_summary:
+                continue
             
             if has_institution and has_foreigner:
                 # 컬럼 헤더만 찾기 (scope="col" 또는 thead 내부)
