@@ -724,8 +724,26 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         # Parse trade value from table row with <th class="title">거래대금(백만)</th> and <span id="_amount">
         # <th class="title">거래대금(백만)</th><td class="num"><span id="_amount">693</span></td>
         # 이미 백만 단위이므로 1,000,000 곱하기
+        # 호가 정보 테이블은 제외하고, "주요 시세" 또는 "시세" 관련 테이블 우선 검색
         all_tables_for_amount = soup.select("table")
+        priority_tables_for_amount = []
+        other_tables_for_amount = []
+        
         for table in all_tables_for_amount:
+            table_summary = table.get("summary", "")
+            # 호가 정보 테이블 제외
+            if "호가 정보" in table_summary or "호가정보" in table_summary:
+                continue
+            # "주요 시세" 또는 "시세" 관련 테이블 우선
+            if "주요 시세" in table_summary or "시세" in table_summary or "거래대금" in table_summary:
+                priority_tables_for_amount.append(table)
+            else:
+                other_tables_for_amount.append(table)
+        
+        # 우선순위 테이블부터 검색
+        tables_to_check_for_amount = priority_tables_for_amount + other_tables_for_amount
+        
+        for table in tables_to_check_for_amount:
             rows = table.select("tr")
             for row in rows:
                 th = row.select_one("th.title, th")
@@ -1579,6 +1597,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             print(f"[{code}] No investor trend data found in main page")
         
         # Only try other pages if not found in main page (to speed up)
+        # 투자자별 매매동향이 없으면 외국인 투자 페이지에서 가져오기
         if not investor_trends:
             investor_pages = [
                 f"https://finance.naver.com/item/frgn.naver?code={code}",
@@ -1752,7 +1771,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             prev_close=prev_close,
             news=news if news else [],
             financials=financials,
-            investor_trends=investor_trends,
+            investor_trends=investor_trends if investor_trends else None,
         )
     except Exception as e:
         print(f"Error fetching stock detail for {code}: {e}")
