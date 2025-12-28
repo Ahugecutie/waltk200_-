@@ -721,7 +721,17 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         volume = 0
         trade_value = 0
         
-        # Method 0: Parse from <span class="text"> structure (가장 정확한 방법)
+        # Method 0: Parse from span#_amount (최우선 - 천 단위)
+        # <span class="tah p11" id="_amount">44,832</span> - 천 단위이므로 1,000 곱하기
+        amount_el = soup.select_one("span#_amount")
+        if amount_el:
+            amount_text = amount_el.get_text(strip=True)
+            amount_value = _to_int(amount_text)
+            if amount_value > 0:
+                # 천 단위이므로 1,000 곱하기
+                trade_value = amount_value * 1_000
+        
+        # Method 1: Parse from <span class="text"> structure (백만 단위)
         # <strong>대금</strong> 다음 <span class="text">42,397백만</span> - 정적 정보 (우선 사용)
         # <em> 안의 개별 숫자들은 실시간 변화 정보이므로 우선순위 낮음
         
@@ -833,35 +843,11 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                         if volume > 0 and trade_value > 0:
                             break
         
-        # Method 2: Fallback to ID-based parsing
+        # Method 3: Fallback to ID-based parsing for volume
         if volume == 0:
             quant_el = soup.select_one("span#_quant")
             if quant_el:
                 volume = _to_int(quant_el.get_text(strip=True))
-        
-        if trade_value == 0:
-            amount_el = soup.select_one("span#_amount")
-            if amount_el:
-                amount_value = _to_int(amount_el.get_text(strip=True))
-                # Check for "백만" unit in nearby elements
-                parent_row = amount_el.find_parent("tr")
-                if parent_row:
-                    # Check next sibling span for unit
-                    next_span = amount_el.find_next_sibling("span")
-                    if next_span and "백만" in next_span.get_text(strip=True):
-                        trade_value = amount_value * 1_000_000
-                    else:
-                        th = parent_row.select_one("th")
-                        if th:
-                            th_text = th.get_text(strip=True)
-                            if "(백만)" in th_text or "백만" in th_text:
-                                trade_value = amount_value * 1_000_000
-                            else:
-                                trade_value = amount_value
-                        else:
-                            trade_value = amount_value
-                else:
-                    trade_value = amount_value
         
         # Market detection (KOSPI vs KOSDAQ)
         market = "KOSPI"
