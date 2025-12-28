@@ -769,7 +769,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                     summary_table = table
                     break
         
-        if summary_table and trade_value == 0:
+        if summary_table:
             rows = summary_table.select("tr")
             for row in rows:
                 # Find "거래량" or "거래대금" label
