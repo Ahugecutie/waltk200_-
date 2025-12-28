@@ -721,63 +721,52 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         volume = 0
         trade_value = 0
         
-        # Method 0: Parse from span#_amount (최우선 - 천 단위)
-        # <span class="tah p11" id="_amount">44,832</span> - 천 단위이므로 1,000 곱하기
-        amount_el = soup.select_one("span#_amount")
-        if amount_el:
-            amount_text = amount_el.get_text(strip=True)
-            amount_value = _to_int(amount_text)
-            if amount_value > 0:
-                # 천 단위이므로 1,000 곱하기
-                trade_value = amount_value * 1_000
+        # Method 0: Parse from <span class="text"> structure (백만 단위) - 최우선
+        # <strong>대금</strong> 다음 <span class="text">42,397백만</span> - 정적 정보
+        # <em> 안의 개별 숫자들은 실시간 변화 정보이므로 우선순위 낮음
+        # span#_amount는 다른 값(호가 정보 등)을 가져올 수 있으므로 사용하지 않음
         
-        # span#_amount가 있으면 다른 방법들은 사용하지 않음 (최우선)
+        # 방법 1: <li> 구조에서 찾기
+        li_items = soup.select("li")
+        for li in li_items:
+            strong_tag = li.select_one("strong")
+            if strong_tag:
+                strong_text = strong_tag.get_text(strip=True)
+                # "대금" 또는 "거래대금" 확인
+                if "대금" in strong_text or "거래대금" in strong_text:
+                    text_span = li.select_one("span.text")
+                    if text_span:
+                        value_text = text_span.get_text(strip=True)
+                        # "42,397백만" 형태에서 숫자 추출
+                        if "백만" in value_text:
+                            # 숫자 부분만 추출 (쉼표 제거 후 숫자만)
+                            number_text = value_text.replace("백만", "").strip()
+                            number_value = _to_int(number_text)
+                            if number_value > 0:
+                                trade_value = number_value * 1_000_000
+                                break  # 찾았으면 중단
+        
+        # 방법 2: <span class="text">가 "백만"을 포함하는 경우 직접 찾기 (li 구조가 아닐 수도 있음)
         if trade_value == 0:
-            # Method 1: Parse from <span class="text"> structure (백만 단위)
-            # <strong>대금</strong> 다음 <span class="text">42,397백만</span> - 정적 정보
-            # <em> 안의 개별 숫자들은 실시간 변화 정보이므로 우선순위 낮음
-            
-            # 방법 1: <li> 구조에서 찾기
-            li_items = soup.select("li")
-            for li in li_items:
-                strong_tag = li.select_one("strong")
-                if strong_tag:
-                    strong_text = strong_tag.get_text(strip=True)
-                    # "대금" 또는 "거래대금" 확인
-                    if "대금" in strong_text or "거래대금" in strong_text:
-                        text_span = li.select_one("span.text")
-                        if text_span:
-                            value_text = text_span.get_text(strip=True)
-                            # "42,397백만" 형태에서 숫자 추출
-                            if "백만" in value_text:
-                                # 숫자 부분만 추출 (쉼표 제거 후 숫자만)
-                                number_text = value_text.replace("백만", "").strip()
-                                number_value = _to_int(number_text)
-                                if number_value > 0:
-                                    trade_value = number_value * 1_000_000
-                                    break  # 찾았으면 중단
-            
-            # 방법 2: <span class="text">가 "백만"을 포함하는 경우 직접 찾기 (li 구조가 아닐 수도 있음)
-            if trade_value == 0:
-                text_spans = soup.select("span.text")
-                for text_span in text_spans:
-                    value_text = text_span.get_text(strip=True)
-                    # "42,397백만" 형태 확인
-                    if "백만" in value_text:
-                        # 부모 요소에서 "대금" 또는 "거래대금" 키워드 확인
-                        parent = text_span.parent
-                        if parent:
-                            parent_text = parent.get_text(strip=True)
-                            # 부모나 형제에 "대금"이 있는지 확인
-                            if "대금" in parent_text or "거래대금" in parent_text:
-                                # 숫자 부분만 추출
-                                number_text = value_text.replace("백만", "").strip()
-                                number_value = _to_int(number_text)
-                                if number_value > 0:
-                                    trade_value = number_value * 1_000_000
-                                    break
-            
-            # Method 2: Parse from table structure (fallback)
+            text_spans = soup.select("span.text")
+            for text_span in text_spans:
+                value_text = text_span.get_text(strip=True)
+                # "42,397백만" 형태 확인
+                if "백만" in value_text:
+                    # 부모 요소에서 "대금" 또는 "거래대금" 키워드 확인
+                    parent = text_span.parent
+                    if parent:
+                        parent_text = parent.get_text(strip=True)
+                        # 부모나 형제에 "대금"이 있는지 확인
+                        if "대금" in parent_text or "거래대금" in parent_text:
+                            # 숫자 부분만 추출
+                            number_text = value_text.replace("백만", "").strip()
+                            number_value = _to_int(number_text)
+                            if number_value > 0:
+                                trade_value = number_value * 1_000_000
+                                break
+        
+        # Method 1: Parse from table structure (fallback)
         # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 숫자들
         # 거래대금: <span class="sptxt sp_txt10">거래대금</span> 다음 <em> 태그 안의 숫자들, 그리고 <em> 다음 <span class="sptxt sp_txt11">백만</span>
         # 호가 정보 테이블은 제외해야 함 (summary="호가 정보에 관한표입니다.")
