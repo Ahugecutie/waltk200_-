@@ -721,7 +721,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
         volume = 0
         trade_value = 0
         
-        # Method 0: Parse from table row with <th class="title">거래대금(백만)</th> and <span id="_amount"> (최우선)
+        # Parse trade value from table row with <th class="title">거래대금(백만)</th> and <span id="_amount">
         # <th class="title">거래대금(백만)</th><td class="num"><span id="_amount">693</span></td>
         # 이미 백만 단위이므로 1,000,000 곱하기
         all_tables_for_amount = soup.select("table")
@@ -746,51 +746,7 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
             if trade_value > 0:
                 break  # 찾았으면 테이블 검색 중단
         
-        # Method 1: Parse from <span class="text"> structure (백만 단위) - fallback
-        # <strong>대금</strong> 다음 <span class="text">42,397백만</span> - 정적 정보
-        # <em> 안의 개별 숫자들은 실시간 변화 정보이므로 우선순위 낮음
-        if trade_value == 0:
-            # 방법 1: <li> 구조에서 찾기
-            li_items = soup.select("li")
-            for li in li_items:
-                strong_tag = li.select_one("strong")
-                if strong_tag:
-                    strong_text = strong_tag.get_text(strip=True)
-                    # "대금" 또는 "거래대금" 확인
-                    if "대금" in strong_text or "거래대금" in strong_text:
-                        text_span = li.select_one("span.text")
-                        if text_span:
-                            value_text = text_span.get_text(strip=True)
-                            # "42,397백만" 형태에서 숫자 추출
-                            if "백만" in value_text:
-                                # 숫자 부분만 추출 (쉼표 제거 후 숫자만)
-                                number_text = value_text.replace("백만", "").strip()
-                                number_value = _to_int(number_text)
-                                if number_value > 0:
-                                    trade_value = number_value * 1_000_000
-                                    break  # 찾았으면 중단
-        
-        # 방법 2: <span class="text">가 "백만"을 포함하는 경우 직접 찾기 (li 구조가 아닐 수도 있음)
-        if trade_value == 0:
-            text_spans = soup.select("span.text")
-            for text_span in text_spans:
-                value_text = text_span.get_text(strip=True)
-                # "42,397백만" 형태 확인
-                if "백만" in value_text:
-                    # 부모 요소에서 "대금" 또는 "거래대금" 키워드 확인
-                    parent = text_span.parent
-                    if parent:
-                        parent_text = parent.get_text(strip=True)
-                        # 부모나 형제에 "대금"이 있는지 확인
-                        if "대금" in parent_text or "거래대금" in parent_text:
-                            # 숫자 부분만 추출
-                            number_text = value_text.replace("백만", "").strip()
-                            number_value = _to_int(number_text)
-                            if number_value > 0:
-                                trade_value = number_value * 1_000_000
-                                break
-        
-        # Method 1: Parse from table structure (fallback)
+        # Parse volume from table structure
         # 거래량: <span class="sptxt sp_txt9">거래량</span> 다음 <em> 태그 안의 숫자들
         # 거래대금: <span class="sptxt sp_txt10">거래대금</span> 다음 <em> 태그 안의 숫자들, 그리고 <em> 다음 <span class="sptxt sp_txt11">백만</span>
         # 호가 정보 테이블은 제외해야 함 (summary="호가 정보에 관한표입니다.")
@@ -832,30 +788,9 @@ async def fetch_stock_detail(client: httpx.AsyncClient, code: str) -> Optional[S
                             
                             if "거래량" in label_text and volume == 0:
                                 volume = number_value
-                            elif "거래대금" in label_text and trade_value == 0:
-                                # Check for "백만" unit after <em> tag
-                                # <em> 다음 형제 요소인 <span class="sptxt sp_txt11">백만</span>
-                                next_span = em_tag.find_next_sibling("span")
-                                if next_span:
-                                    unit_text = next_span.get_text(strip=True)
-                                    if "백만" in unit_text:
-                                        trade_value = number_value * 1_000_000
-                                    else:
-                                        trade_value = number_value
-                                else:
-                                    # Fallback: check parent row's th for unit
-                                    th = row.select_one("th")
-                                    if th:
-                                        th_text = th.get_text(strip=True)
-                                        if "(백만)" in th_text or "백만" in th_text:
-                                            trade_value = number_value * 1_000_000
-                                        else:
-                                            trade_value = number_value
-                                    else:
-                                        trade_value = number_value
                         
-                        # Early exit if both found
-                        if volume > 0 and trade_value > 0:
+                        # Early exit if found
+                        if volume > 0:
                             break
         
         # Method 3: Fallback to ID-based parsing for volume
